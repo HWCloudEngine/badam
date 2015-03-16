@@ -1,10 +1,39 @@
 __author__ = 'nash.xiejun'
 
-from common import config
+import logging
+import sys
+
+from common import config, engineering_logging
+from common.engineering_logging import log_for_func_of_class
+from utils import AllInOneUsedCMD
+
+logger_name = __name__
+logger = logging.getLogger(__name__)
+
+class ValidateBase(object):
+    @log_for_func_of_class(logger_name)
+    def validate(self):
+        return True
+
+class ConfiguratorBase(object):
+    @log_for_func_of_class(logger_name)
+    def config(self):
+        return True
+
+class InstallerBase(object):
+    @log_for_func_of_class(logger_name)
+    def install(self):
+        return True
+
+class CheckBase(object):
+    @log_for_func_of_class(logger_name)
+    def check(self):
+        return True
 
 class EnginneringFactory(object):
 
-    def __init__(self, validator=None, installer=None, configurator=None, checker=None):
+    def __init__(self, factory_name, validator=ValidateBase(), installer=InstallerBase(), configurator=ConfiguratorBase(), checker=CheckBase()):
+        self.factory_name = factory_name
         self.validator = validator
         self.installer = installer
         self.configurator = configurator
@@ -14,39 +43,40 @@ class EnginneringFactory(object):
         return self
 
     def execute(self):
+        logger.info('Start to execute for %s' % self.factory_name)
 
-        if self.validator is not None:
-            validate_result = self.validator.validate()
+        execute_result = True
 
-        if self.installer is not None:
-            install_result = self.installer.install()
+        validate_result = self.validator.validate()
 
-        if self.configurator is not None:
-            config_result = self.configurator.config()
+        install_result = self.installer.install()
 
-        if self.checker is not None:
-            check_result = self.checker.check()
+        config_result = self.configurator.config()
 
-class ConfiguratorBase(object):
-    def config(self):
-        pass
+        check_result = self.checker.check()
 
-class InstallerBase(object):
-    def install(self):
-        pass
+        logger.info('End to execute for %s, result is %s' , self.factory_name, execute_result)
+
 
 class HostnameConfigurator(ConfiguratorBase):
 
     def config(self):
-        self._config_etc_hostname()
-        self._config_etc_hosts()
+        try:
+            self._config_etc_hostname()
+            self._config_etc_hosts()
+            AllInOneUsedCMD.reboot()
+        except:
+            logger.error('Exception occured when config hostname. EXCEPTION: %s' % sys.exc_traceback)
 
     def _config_etc_hostname(self):
+        logger.info('Start to config hostname file')
         with open(config.CONF.file_hostname, 'w') as hostname_file:
             hostname_file.truncate()
             hostname_file.write(config.CONF.sysconfig.hostname)
+        logger.info('Success to config hostname file, /etc/hostname')
 
     def _config_etc_hosts(self):
+        logger.info('Start to config hosts file')
         modified_contents = ''
         with open(config.CONF.file_hosts, 'r') as hosts_file:
             for line in hosts_file:
@@ -59,10 +89,7 @@ class HostnameConfigurator(ConfiguratorBase):
             hosts_file.truncate()
             hosts_file.write(modified_contents)
 
-class HostnameInstaller(InstallerBase):
-    def install(self):
-        pass
+        logger.info('Config hosts file success, /etc/hosts')
 
-
-
-
+class AllInOneConfigurator(ConfiguratorBase):
+    pass

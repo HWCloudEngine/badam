@@ -15,9 +15,4 @@ class AllInOneConfig(object):
 class InitConfiguration(object):
 
     def __init__(self):
-        print (config.CONF.sysconfig.hostname)
-        print(config.CONF.file_hosts)
-
-initConfig = InitConfiguration()
-
-
+        pass
