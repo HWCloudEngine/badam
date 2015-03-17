@@ -6,9 +6,15 @@ import sys
 from common import config, engineering_logging
 from common.engineering_logging import log_for_func_of_class
 from utils import AllInOneUsedCMD
+from common.config import ConfigCommon
+from oslo.config import cfg
 
 logger_name = __name__
 logger = logging.getLogger(__name__)
+
+CONF = cfg.CONF
+
+
 
 class ValidateBase(object):
     @log_for_func_of_class(logger_name)
@@ -66,7 +72,7 @@ class HostnameConfigurator(ConfiguratorBase):
             self._config_etc_hosts()
             AllInOneUsedCMD.reboot()
         except:
-            logger.error('Exception occured when config hostname. EXCEPTION: %s' % sys.exc_traceback)
+            logger.error('Exception occur when config hostname. EXCEPTION: %s' % sys.exc_traceback)
 
     def _config_etc_hostname(self):
         logger.info('Start to config hostname file')
@@ -92,4 +98,37 @@ class HostnameConfigurator(ConfiguratorBase):
         logger.info('Config hosts file success, /etc/hosts')
 
 class AllInOneConfigurator(ConfiguratorBase):
-    pass
+
+    @log_for_func_of_class(logger_name)
+    def config(self):
+        try:
+            AllInOneUsedCMD.rabbitmq_changed_pwd()
+            self._config_rc_local()
+            self._config_nova_conf()
+        except:
+            logger.error('Exception occur when change rabbitmq pwd, EXCEPTION: %s' % sys.exc_traceback)
+
+    @log_for_func_of_class(logger_name)
+    def _config_rc_local(self):
+        try:
+            contents = ['service nova-cert restart',
+                        'service nova-scheduler restart',
+                        'ifconfig br-ex:0 %s netmask 255.255.255.0' % config.CONF.sysconfig.local_host_ip,
+                        'exit 0']
+
+            with open(config.CONF.rc_local_file) as rc_local_file:
+                rc_local_file.truncate()
+                rc_local_file.writelines(contents)
+        except:
+            logger.error('Exception occur when config rc.local. EXCEPTION: %s' % sys.exc_traceback)
+
+    def _config_nova_conf(self):
+        vncserver_listen = '0.0.0.0'
+        path_nova_conf_file = config.CONF.sysconfig.path_nova_conf
+
+        config_common = ConfigCommon(path_nova_conf_file)
+        config_common.set_option(config.CONF.section_default, 'vncserver_listen', '0.0.0.0')
+        config_common.set_option(config.CONF.section_default, 'service_metadata_proxy', 'False')
+        config_common.set_option(config.CONF.section_default, metadata_proxy_shared_secret , 'openstack')
+        config_common.write_commit()
+

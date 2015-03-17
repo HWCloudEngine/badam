@@ -2,8 +2,7 @@ import sys
 import logging
 
 from common import config,engineering_logging
-from engineering_factory import EnginneringFactory
-from engineering_factory import HostnameConfigurator
+from engineering_factory import EnginneringFactory, HostnameConfigurator, AllInOneConfigurator
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +13,11 @@ def main():
     if operation == 'cfg-hostname':
         EnginneringFactory(operation, configurator=HostnameConfigurator()).execute()
     elif operation == 'cfg-all-in-one':
-        pass
+        EnginneringFactory(operation, configurator=AllInOneConfigurator()).execute()
+    else:
+        err_info = 'Invalid operation-<%s>, please check your config file.' % operation
+        print (err_info)
+        logger.error(err_info)
 
 
     logger.info('End to config All-in-one')
