@@ -23,7 +23,10 @@ global_opts = [
     cfg.StrOpt('path_nova_conf', default='/etc/nova/nova.conf'),
     cfg.StrOpt('path_neutron_conf', default='/etc/neutron/neutron.conf'),
     cfg.StrOpt('path_cinder_conf', default='/etc/cinder/cinder.conf'),
-    cfg.StrOpt('section_default', default='default')
+    cfg.StrOpt('path_ml2_ini', default='/etc/neutron/plugins/ml2/ml2_conf.ini'),
+    cfg.StrOpt('path_sysctl', default='/etc/sysctl.conf'),
+    cfg.StrOpt('path_l3_agent', default='/etc/neutron/l3_agent.ini'),
+    cfg.StrOpt('section_default', default='DEFAULT')
 ]
 CONF.register_opts(global_opts)
 
@@ -38,7 +41,8 @@ sysconfig_opts = [
     cfg.StrOpt('operation',
                default='operation_default'),
     cfg.StrOpt('local_host_ip',
-               default='127.0.0.1')
+               default='127.0.0.1'),
+    cfg.StrOpt('ml2_local_ip', default='10.0.0.99')
 ]
 
 CONF.register_group(sysconfig_group)
@@ -67,7 +71,7 @@ class ConfigCommon(object):
     def get_value(self, section, option):
         return self.config.get(section, option)
 
-    def set_options(self, section, dict_options={}):
+    def set_options(self, section, dict_options):
         """
 
         :param section: type string, name of section
