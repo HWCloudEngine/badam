@@ -114,6 +114,8 @@ class AllInOneConfigurator(ConfiguratorBase):
             self._config_ml2_ini()
             self._config_sysctl()
             self._config_l3_agent()
+            self._config_dhcp_agent()
+            self._config_metadata_agent()
         except:
             logger.error('Exception occur when All-In-One Config. EXCEPTION: %s' % traceback.format_exc())
 
@@ -250,11 +252,59 @@ class AllInOneConfigurator(ConfiguratorBase):
         """
         config /etc/neutron/dhcp_agent.ini,
         set following:
+        #vi /etc/neutron/dhcp_agent.ini
+        [DEFAULT]
+        dhcp_driver = neutron.agent.linux.dhcp.Dnsmasq
+        use_namespaces = False
 
         :return:
         """
-        pass
+        result = False
+        try:
+            option_dhcp_driver = 'dhcp_driver'
+            value_dhcp_driver = 'neutron.agent.linux.dhcp.Dnsmasq'
+            option_use_namespaces = 'use_namespace'
+            value_use_namespaces = 'False'
+            common_config = ConfigCommon(config.CONF.path_dhcp_agent_ini)
+            common_config.set_option(config.CONF.section_default, option_dhcp_driver, value_dhcp_driver)
+            common_config.set_option(config.CONF.section_default, option_use_namespaces, value_use_namespaces)
+            common_config.write_commit()
+            result = True
+        except:
+            err_info = 'Exception occur when config dhcp_agent.ini. Exception: %s' % traceback.format_exc()
+            logger.error(err_info)
+            print(err_info)
 
+        return result
 
+    @log_for_func_of_class(logger_name)
+    def _config_metadata_agent(self):
+        """
+        # vi /etc/neutron/metadata_agent.ini
+        [DEFAULT]
+        nova_metadata_ip = 162.3.110.71
+        metadata_proxy_shared_secret = openstack
 
+        :return:
+        """
+        result = True
+        try:
+            option_nova_metadata_ip = 'nova_metadata_ip'
+            value_nova_metadata_ip = config.CONF.sysconfig.local_host_ip
+            option_metadata_proxy_shared_secret = 'metadata_proxy_shared_secret'
+            value_metadata_proxy_shared_secret = 'openstack'
+            config_common = ConfigCommon(config.CONF.path_metadata_agent_ini)
+            config_common.set_option(config.CONF.section_default, option_nova_metadata_ip, value_nova_metadata_ip)
+            config_common.set_option(config.CONF.section_default, option_metadata_proxy_shared_secret, value_metadata_proxy_shared_secret)
+            config_common.write_commit()
 
+            result = True
+        except:
+            err_info = 'Exception occur when config dhcp_agent.ini. Exception: %s' % traceback.format_exc()
+            logger.error(err_info)
+            print(err_info)
+
+        return result
+
+class CascadingConfigurator(ConfiguratorBase):
+    pass

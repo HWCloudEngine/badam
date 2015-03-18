@@ -26,6 +26,8 @@ global_opts = [
     cfg.StrOpt('path_ml2_ini', default='/etc/neutron/plugins/ml2/ml2_conf.ini'),
     cfg.StrOpt('path_sysctl', default='/etc/sysctl.conf'),
     cfg.StrOpt('path_l3_agent', default='/etc/neutron/l3_agent.ini'),
+    cfg.StrOpt('path_dhcp_agent_ini', default='/etc/neutron/dhcp_agent.ini'),
+    cfg.StrOpt('path_metadata_agent_ini', default='/etc/neutron/metadata_agent.ini'),
     cfg.StrOpt('section_default', default='DEFAULT')
 ]
 CONF.register_opts(global_opts)
