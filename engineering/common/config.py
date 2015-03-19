@@ -47,8 +47,68 @@ sysconfig_opts = [
     cfg.StrOpt('ml2_local_ip', default='10.0.0.99')
 ]
 
+node_types_group = cfg.OptGroup(name='node_types',
+                               title='for define node type, 3 option: cascading_node, cascaded_node, proxy_node')
+node_types_opts = [
+    cfg.BoolOpt('cascading_node',
+                default=False),
+    cfg.BoolOpt('cascaded_node',
+                default=False),
+    cfg.BoolOpt('proxy_node',
+                default=False),
+]
+
+cascading_node_plugins_group = cfg.OptGroup(name='cascading_node_plugins',
+                                      title='For define cascading plugin')
+
+cascading_node_plugins_opts = [
+    cfg.BoolOpt('nova_scheduling_patch',
+                default=False),
+    cfg.BoolOpt('neutron_cascading_big2layer_patch',
+                default=False),
+    cfg.BoolOpt('neutron_cascading_l3_patch',
+                default=False)
+]
+
+cascaded_node_plugins_group = cfg.OptGroup(name='cascaded_node_plugins',
+                                     title='For define cascaded plugin')
+
+cascaded_node_plugins_opts = [
+    cfg.BoolOpt('neutron_cascaded_big2layer_patch',
+                default=False),
+    cfg.BoolOpt('neutron_cascaded_l3_patch',
+                default=False),
+    cfg.BoolOpt('neutron_timestamp_cascaded_patch',
+                default=False),
+]
+
+proxy_node_plugins_group = cfg.OptGroup(name='proxy_node_plugins',
+                                        title='for define which proxy plugins be installed in proxy node')
+
+proxy_node_plugins_opts = [
+    cfg.BoolOpt('nova_proxy',
+                default=False),
+    cfg.BoolOpt('cinder_proxy',
+                default=False),
+    cfg.BoolOpt('neutron_l2_proxy',
+                default=False),
+    cfg.BoolOpt('neutron_l3_proxy',
+                default=False),
+]
+
+
 CONF.register_group(sysconfig_group)
 CONF.register_opts(sysconfig_opts, sysconfig_group)
+
+CONF.register_group(cascading_node_plugins_group)
+CONF.register_opts(cascading_node_plugins_opts, cascading_node_plugins_group)
+
+CONF.register_group(cascaded_node_plugins_group)
+CONF.register_opts(cascaded_node_plugins_opts, cascaded_node_plugins_group)
+
+CONF.register_group(proxy_node_plugins_group)
+CONF.register_opts(proxy_node_plugins_opts, proxy_node_plugins_group)
+
 CONF(sys.argv[1:])
 
 class ConfigCommon(object):

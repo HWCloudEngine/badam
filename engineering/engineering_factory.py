@@ -8,6 +8,7 @@ from oslo.config import cfg
 
 from common import config, engineering_logging
 from common.engineering_logging import log_for_func_of_class
+import utils
 from utils import AllInOneUsedCMD
 from common.config import ConfigCommon
 from services import RefServices
@@ -125,7 +126,7 @@ class AllInOneConfigurator(ConfiguratorBase):
         try:
             contents = ['service nova-cert restart\n',
                         'service nova-scheduler restart\n',
-                        'ifconfig br-ex:0 %s netmask 255.255.255.0\n' % config.CONF.sysconfig.local_host_ip,
+                        'ifconfig br-ex:0 %s netmask 255.255.255.0\n' % config.CONF.sysconfig.ml2_local_ip,
                         'exit 0']
 
             with open(config.CONF.rc_local_file, 'w') as rc_local_file:
@@ -306,5 +307,25 @@ class AllInOneConfigurator(ConfiguratorBase):
 
         return result
 
-class CascadingConfigurator(ConfiguratorBase):
-    pass
+class PatchInstaller(object):
+
+    def get_all_files(self, path):
+        dir_infos = os.walk(path)
+        for dir_info in dir_infos:
+
+
+
+class NovaSchedulerPatchInstaller(InstallerBase):
+
+    def __init__(self):
+        patch_self_path = 'hybrid_cloud_tricircle/juno-patches/nova/nova_scheduling_patch'
+        self.patch_code_path = os.path.join(utils.get_engineering_root_path(), patch_self_path)
+        logger.info('Nova Scheduler Patch path is %s', self.patch_code_path)
+
+    def install(self):
+        files = os.walk(self.patch_code_path)
+
+
+class NovaSchedulerPatchConfig(ConfiguratorBase):
+    def config(self):
+        pass

@@ -4,6 +4,7 @@ import subprocess
 import logging
 import sys
 import traceback
+import os
 
 
 logger = logging.getLogger(__name__)
@@ -48,6 +49,28 @@ class AllInOneUsedCMD(object):
             logger.error('Exception occur when copy %s to %s, Exception: %s', source, destiny, traceback.format_exc())
             return False
 
+def get_engineering_root_path():
+    return os.path.split(os.path.realpath(__file__))[0]
 
+def get_files(path, filters):
+    """
 
+    :param filters: array, specified valid file suffix.
+    :return:
+    """
+    files_path = []
+    file_sys_infos = os.walk(path)
 
+    for (path, dirs, files) in file_sys_infos:
+        if files == []:
+            continue
+        else:
+            for file in files:
+                print (os.path.splitext(file))
+                if os.path.splitext(file)[1] in filters:
+                    file_path = os.path.join(path, file)
+                    files_path.append(file_path)
+                else:
+                    continue
+
+    return files_path
