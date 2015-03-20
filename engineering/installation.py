@@ -12,11 +12,13 @@ class CascadingDeploy(object):
         result_deploy = False
 
         if config.CONF.node_types.cascading_node == True:
+            self.create_endpoints_in_cascading_node()
             self.deploy_nova_scheduling_patch()
             self.deploy_neutron_cascading_big2layer_patch()
             self.deploy_neutron_cascading_l3_patch_patch()
 
         if config.CONF.node_types.cascaded_node == True:
+            self.creat_ag_az_for_cascaded_node()
             self.deploy_neutron_cascaded_big2layer_patch()
             self.deploy_neutron_cascaded_l3_patch()
             self.deploy_neutron_timestamp_cascaded_patch()
@@ -51,6 +53,12 @@ class CascadingDeploy(object):
                           patch_deploy_factory)
 
     def deploy_neutron_cascading_l3_patch_patch(self):
+        pass
+
+    def create_endpoints_in_cascading_node(self):
+        pass
+
+    def creat_ag_az_for_cascaded_node(self):
         pass
 
     def deploy_neutron_cascaded_big2layer_patch(self):

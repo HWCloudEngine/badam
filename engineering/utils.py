@@ -35,9 +35,9 @@ class AllInOneUsedCMD(object):
             logger.error('When change rabbitmq pwd exception occured, Exception: %s' % sys.exc_traceback)
 
     @staticmethod
-    def cp_to(self, source, destiny):
+    def cp_to(source, str_destiny):
         try:
-            cmd = 'cp %s %s' % (source, destiny)
+            cmd = 'cp %s %s' % (source, str_destiny)
             result = subprocess.call(cmd.split(' '))
             if result == 0:
                 logger.info('SUCCESS to copy %s to %s')
@@ -49,8 +49,11 @@ class AllInOneUsedCMD(object):
             logger.error('Exception occur when copy %s to %s, Exception: %s', source, destiny, traceback.format_exc())
             return False
 
-def get_engineering_root_path():
+def get_engineering_s_path():
     return os.path.split(os.path.realpath(__file__))[0]
+
+def get_hybrid_cloud_badam_parent_path():
+    return os.path.sep.join(os.path.realpath(__file__).split(os.path.sep)[:-3])
 
 def get_files(path, filters):
     """
@@ -66,7 +69,6 @@ def get_files(path, filters):
             continue
         else:
             for file in files:
-                print (os.path.splitext(file))
                 if os.path.splitext(file)[1] in filters:
                     file_path = os.path.join(path, file)
                     files_path.append(file_path)
@@ -74,3 +76,15 @@ def get_files(path, filters):
                     continue
 
     return files_path
+
+def get_openstack_installed_path():
+    paths = [path for path in sys.path if 'dist-packages' in path and 'local' not in path]
+    if not paths:
+        return None
+    else:
+        return paths[0]
+
+if __name__ == '__main__':
+    patch_path = 'hybrid_tricrile/nova/nova_patch/'
+    print get_hybrid_cloud_badam_parent_path()
+    print os.path.normpath(os.path.join(get_hybrid_cloud_badam_parent_path(), patch_path))

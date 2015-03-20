@@ -182,7 +182,7 @@ class AllInOneConfigurator(ConfiguratorBase):
         try:
             self_define_ml2_file = os.path.split(os.path.realpath(__file__))[0] +'/config/ml2_conf.ini'
             destiny = config.CONF.path_ml2_ini
-            result = AllInOneUsedCMD.cp_to(self_define_ml2_file, destiny)
+            result = AllInOneUsedCMD.cp_to(self_define_ml2_file, str(destiny))
         except:
             err_info = 'Exception occur when copy self define ml2 file. Exception: %s' % traceback.format_exc()
             print err_info
@@ -307,25 +307,84 @@ class AllInOneConfigurator(ConfiguratorBase):
 
         return result
 
-class PatchInstaller(object):
+class PatchInstaller(InstallerBase):
 
-    def get_all_files(self, path):
-        dir_infos = os.walk(path)
-        for dir_info in dir_infos:
+    def __init__(self, patch_path, openstack_install_path, filters):
+        # patch_path is /root/tricircle-master/juno-patches/nova/nova_scheduling_patch/
+        self.patch_path = patch_path
+        # install_path is  openstack installed path'/usr/lib/python2.7/dist-packages/'
+        self.openstack_install_path = openstack_install_path
+        # filter is valid suffix of files, for example: ['.py']
+        self.filters = filters
+        self.bak_openstack_path = config.CONF.openstack_bak_path
+
+    def get_patch_files(self, patch_path, filters):
+        """
+
+        :param patch_path: path of patch's source code
+        :param filters: [] array of valid suffix of file. for example: ['.py']
+        :return:
+        """
+        return utils.get_files(patch_path, filters)
+
+    def bak_patched_files(self, patch_file):
+        """
+
+        :param patch_file:  one file of patch's source code files,
+            for example: /root/tricircle-master/juno-patches/nova/nova_scheduling_patch/nova/conductor/manager.py
+        :return:
+        """
+        logger.info('Start bak_patched_files, ')
+        # relative_path is relative to this path(self.patch_path),
+        # for example: if self.patch_path = "/root/tricircle-master/juno-patches/nova/nova_scheduling_patch/"
+        # then relative_path of manager.py is "/nova/nova_scheduling_patch/nova/conductor/manager.py"
+        relative_path = patch_file.split(self.patch_path)[0]
+        # installed_path is full install path, for example: /usr/lib/python2.7/dist-packages/nova/conductor/manager.py
+        installed_path = os.path.sep.join([self.openstack_install_path, relative_path])
+        if os.path.isdir(self.bak_openstack_path):
+            AllInOneUsedCMD.cp_to(installed_path, self.bak_openstack_path)
+        else:
+            err_info = 'Bak path of openstack <%s> is not exist' % self.bak_openstack_path
+            logger.error(err_info)
+            raise ValueError(err_info)
+
+    @log_for_func_of_class(logger_name)
+    def install(self):
+        patch_files = self.get_patch_files(self.patch_path, self.filters)
+        for each_patch_file in patch_files:
+            self.bak_patched_files(each_patch_file)
+            AllInOneUsedCMD.cp_to(each_patch_file, self.openstack_install_path)
 
 
+class PatchConfigurator(ConfiguratorBase):
+    def __init__(self, patches_config_path, path_openstack_conf_path):
+        """
 
-class NovaSchedulerPatchInstaller(InstallerBase):
+        :param patches_config_path: path of patches config file.
+            for example: /root/hybrid_cloud_badam/config/nova.conf
+        :param path_openstack_conf_path:
+        :return:
+        """
+        pass
+
+
+class NovaProxyPatchConfig(ConfiguratorBase):
 
     def __init__(self):
-        patch_self_path = 'hybrid_cloud_tricircle/juno-patches/nova/nova_scheduling_patch'
-        self.patch_code_path = os.path.join(utils.get_engineering_root_path(), patch_self_path)
-        logger.info('Nova Scheduler Patch path is %s', self.patch_code_path)
+        self.nova_patches_config_path = config.CONF.path_nova_patches_conf
 
-    def install(self):
-        files = os.walk(self.patch_code_path)
-
-
-class NovaSchedulerPatchConfig(ConfiguratorBase):
     def config(self):
         pass
+
+# class NovaSchedulerPatchInstaller(PatchInstaller):
+#     def __init__(self):
+#         path_nova_scheduling_patch = os.path.normpath('hybrid_cloud_tricircle/juno-patches/nova/nova_scheduling_patch')
+#         self.full_path_nova_scheduling_patch = os.path.join(utils.get_hybrid_cloud_badam_parent_path(), path_nova_scheduling_patch)
+#         logger.info('Nova Scheduler Patch path is %s', self.full_path_nova_scheduling_patch)
+#         openstack_installed_path = utils.get_openstack_installed_path()
+#         valid_file_filters = ['.py']
+#         super(NovaSchedulerPatchInstaller, self).__init__(self.full_path_nova_scheduling_patch,
+#                                                           openstack_installed_path,
+#                                                           valid_file_filters)
+#
+#

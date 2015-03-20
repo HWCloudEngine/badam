@@ -5,6 +5,7 @@ import sys
 import ConfigParser
 
 from oslo.config import cfg
+from engineering import utils
 
 
 CONF = cfg.CONF
@@ -28,7 +29,10 @@ global_opts = [
     cfg.StrOpt('path_l3_agent', default='/etc/neutron/l3_agent.ini'),
     cfg.StrOpt('path_dhcp_agent_ini', default='/etc/neutron/dhcp_agent.ini'),
     cfg.StrOpt('path_metadata_agent_ini', default='/etc/neutron/metadata_agent.ini'),
-    cfg.StrOpt('section_default', default='DEFAULT')
+    cfg.StrOpt('section_default', default='DEFAULT'),
+    cfg.StrOpt('openstack_installed_path', default=utils.get_openstack_installed_path()),
+    cfg.StrOpt('openstack_bak_path', default='/root/'),
+    cfg.StrOpt('path_nova_patches_conf', default=os.path.split(os.path.realpath(__file__))[0] + '/../config/nova.conf')
 ]
 CONF.register_opts(global_opts)
 

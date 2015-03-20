@@ -14,6 +14,8 @@ def main():
         EnginneringFactory(operation, configurator=HostnameConfigurator()).execute()
     elif operation == 'cfg-all-in-one':
         EnginneringFactory(operation, configurator=AllInOneConfigurator()).execute()
+    elif operation == 'deploy-cascade-openstack':
+        pass
     else:
         err_info = 'Invalid operation-<%s>, please check your config file.' % operation
         print (err_info)
