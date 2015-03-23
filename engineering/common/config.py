@@ -51,15 +51,19 @@ sysconfig_opts = [
     cfg.StrOpt('ml2_local_ip', default='10.0.0.99')
 ]
 
-node_types_group = cfg.OptGroup(name='node_types',
+node_cfg_group = cfg.OptGroup(name='node_cfg',
                                title='for define node type, 3 option: cascading_node, cascaded_node, proxy_node')
-node_types_opts = [
+node_cfg_opts = [
     cfg.BoolOpt('cascading_node',
                 default=False),
     cfg.BoolOpt('cascaded_node',
                 default=False),
     cfg.BoolOpt('proxy_node',
                 default=False),
+    cfg.StrOpt('region_name', default=''),
+    cfg.StrOpt('cascading_node_ip', default='127.0.0.1'),
+    cfg.StrOpt('proxy_node_ip', default='127.0.0.1'),
+    cfg.StrOpt('cascaded_node_ip', default='127.0.0.1')
 ]
 
 cascading_node_plugins_group = cfg.OptGroup(name='cascading_node_plugins',
@@ -71,7 +75,8 @@ cascading_node_plugins_opts = [
     cfg.BoolOpt('neutron_cascading_big2layer_patch',
                 default=False),
     cfg.BoolOpt('neutron_cascading_l3_patch',
-                default=False)
+                default=False),
+    cfg.DictOpt('endpoints_info', default=None)
 ]
 
 cascaded_node_plugins_group = cfg.OptGroup(name='cascaded_node_plugins',

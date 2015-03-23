@@ -357,7 +357,7 @@ class PatchInstaller(InstallerBase):
 
 
 class PatchConfigurator(ConfiguratorBase):
-    def __init__(self, patches_config_path, path_openstack_conf_path):
+    def __init__(self):
         """
 
         :param patches_config_path: path of patches config file.
@@ -375,16 +375,3 @@ class NovaProxyPatchConfig(ConfiguratorBase):
 
     def config(self):
         pass
-
-# class NovaSchedulerPatchInstaller(PatchInstaller):
-#     def __init__(self):
-#         path_nova_scheduling_patch = os.path.normpath('hybrid_cloud_tricircle/juno-patches/nova/nova_scheduling_patch')
-#         self.full_path_nova_scheduling_patch = os.path.join(utils.get_hybrid_cloud_badam_parent_path(), path_nova_scheduling_patch)
-#         logger.info('Nova Scheduler Patch path is %s', self.full_path_nova_scheduling_patch)
-#         openstack_installed_path = utils.get_openstack_installed_path()
-#         valid_file_filters = ['.py']
-#         super(NovaSchedulerPatchInstaller, self).__init__(self.full_path_nova_scheduling_patch,
-#                                                           openstack_installed_path,
-#                                                           valid_file_filters)
-#
-#

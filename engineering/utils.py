@@ -84,6 +84,18 @@ def get_openstack_installed_path():
     else:
         return paths[0]
 
+def print_log(log_contents, log_level):
+    print(log_contents)
+    if log_level == logging.WARNING:
+        logger.warning(log_contents)
+        print(log_contents)
+    elif log_level == logging.ERROR:
+        logger.error(log_contents)
+        print(log_contents)
+    else:
+        logger.info(log_contents)
+        print(log_contents)
+
 if __name__ == '__main__':
     patch_path = 'hybrid_tricrile/nova/nova_patch/'
     print get_hybrid_cloud_badam_parent_path()
