@@ -8,6 +8,7 @@ from services import RefServices
 from engineering_factory import EnginneringFactory, PatchInstaller, PatchConfigurator
 from common.econstants import PathTriCircle
 import utils
+from utils import ELog
 
 logger = logging.getLogger(__name__)
 
@@ -76,9 +77,8 @@ class CascadingDeploy(object):
         elif patch_on_off == True:
             patch_deploy_factory.execute()
         else:
-            utils.print_log('Config for cascading node <%s> is invalid, value is: %s' %
-                            (patch_name, patch_on_off), logging.ERROR)
-            logger.warning()
+            ELog.error('Config for cascading node <%s> is invalid, value is: %s' %
+                            (patch_name, patch_on_off))
             return False
 
     def deploy_nova_scheduling_patch(self):

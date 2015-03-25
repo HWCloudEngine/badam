@@ -1,9 +1,12 @@
 import sys
 import logging
+from utils import print_log, get_hybrid_cloud_badam_path
+sys.path.append(get_hybrid_cloud_badam_path())
 
-from common import config,engineering_logging
+from common import config
 from engineering_factory import EnginneringFactory, HostnameConfigurator, AllInOneConfigurator
 from installation import CascadingDeploy
+
 
 logger = logging.getLogger(__name__)
 
@@ -17,9 +20,10 @@ def main():
         #python install_exe.py --config-file config/configuration.conf
     :return:
     """
-    logger.info('Start to config All-in-one ')
+    print_log('Start to doing deploy...', logging.INFO)
+
     operation = config.CONF.sysconfig.operation
-    print 'Current operation is: %s' % operation
+    print_log('Your operation is - <%s>' % operation, logging.INFO)
     if operation == 'cfg-hostname':
         EnginneringFactory(operation, configurator=HostnameConfigurator()).execute()
     elif operation == 'cfg-all-in-one':

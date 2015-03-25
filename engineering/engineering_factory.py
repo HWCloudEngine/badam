@@ -9,14 +9,15 @@ from oslo.config import cfg
 from common import config, engineering_logging
 from common.engineering_logging import log_for_func_of_class
 import utils
-from utils import AllInOneUsedCMD
+from utils import AllInOneUsedCMD, print_log, ELog
 from common.config import ConfigCommon
 
 from services import RefServices
 from common.econstants import ConfigReplacement
 
 logger_name = __name__
-logger = logging.getLogger(__name__)
+module_logger = logging.getLogger(__name__)
+logger = ELog(module_logger)
 
 CONF = cfg.CONF
 
@@ -53,19 +54,23 @@ class EnginneringFactory(object):
         return self
 
     def execute(self):
-        logger.info('Start to execute for %s' % self.factory_name)
+        print_log('Start to execute for %s' % self.factory_name, logging.INFO)
 
         execute_result = True
-
+        sep = '******'
+        logger.info(sep)
+        logger.info(sep)
         validate_result = self.validator.validate()
-
+        logger.info(sep)
         install_result = self.installer.install()
-
+        logger.info(sep)
         config_result = self.configurator.config()
-
+        logger.info(sep)
         check_result = self.checker.check()
+        logger.info(sep)
+        logger.info(sep)
 
-        logger.info('End to execute for %s, result is %s' , self.factory_name, execute_result)
+        print_log('End to execute for %s, result is %s' % (self.factory_name, execute_result), logging.INFO)
 
 class HostnameConfigurator(ConfiguratorBase):
 
@@ -73,6 +78,7 @@ class HostnameConfigurator(ConfiguratorBase):
         try:
             self._config_etc_hostname()
             self._config_etc_hosts()
+
             AllInOneUsedCMD.reboot()
         except:
             logger.error('Exception occur when config hostname. EXCEPTION: %s' % traceback.format_exc())
@@ -105,6 +111,7 @@ class AllInOneConfigurator(ConfiguratorBase):
 
     @log_for_func_of_class(logger_name)
     def config(self):
+        result = 'SUCCESS'
         try:
             # AllInOneUsedCMD.rabbitmq_changed_pwd()
             self._config_rc_local()
@@ -118,6 +125,8 @@ class AllInOneConfigurator(ConfiguratorBase):
             self._config_metadata_agent()
         except:
             logger.error('Exception occur when All-In-One Config. EXCEPTION: %s' % traceback.format_exc())
+            result = 'FAILED'
+        return result
 
     @log_for_func_of_class(logger_name)
     def _config_rc_local(self):
@@ -171,6 +180,7 @@ class AllInOneConfigurator(ConfiguratorBase):
         option_nova_admin_tenant_id = 'nova_admin_tenant_id'
         # get tenant id
         value_nova_admin_tenant_id = RefServices().get_tenant_id_for_service()
+        logger.info('tenant id of service is <%s>' % (value_nova_admin_tenant_id))
         config_common = ConfigCommon(path_neutron_conf)
         config_common.set_option(config.CONF.section_default, option_nova_admin_tenant_id, value_nova_admin_tenant_id)
         config_common.write_commit()
@@ -192,7 +202,7 @@ class AllInOneConfigurator(ConfiguratorBase):
     def _config_ml2_ini(self):
         result = False
         try:
-            ml2_section_ovf = 'ovf'
+            ml2_section_ovf = 'ovs'
             option_local_ip = 'local_ip'
             config_common = ConfigCommon(config.CONF.path_ml2_ini)
             config_common.set_option(ml2_section_ovf, option_local_ip, config.CONF.sysconfig.ml2_local_ip)
@@ -213,7 +223,7 @@ class AllInOneConfigurator(ConfiguratorBase):
             contents = [option_all_rp_filter,
                         option_default_rp_filter]
 
-            with open(config.CONF.path_sys_ctl, 'w') as sysctl_file:
+            with open(config.CONF.path_sysctl, 'w') as sysctl_file:
                 sysctl_file.writelines(contents)
             result = True
         except:

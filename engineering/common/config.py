@@ -8,7 +8,6 @@ from engineering.common.econstants import PathTriCircle
 from oslo.config import cfg
 from engineering import utils
 
-
 CONF = cfg.CONF
 
 #########################

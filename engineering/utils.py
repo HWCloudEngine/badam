@@ -55,6 +55,9 @@ def get_engineering_s_path():
 def get_hybrid_cloud_badam_parent_path():
     return os.path.sep.join(os.path.realpath(__file__).split(os.path.sep)[:-3])
 
+def get_hybrid_cloud_badam_path():
+    return os.path.sep.join(os.path.realpath(__file__).split(os.path.sep)[:-2])
+
 def get_files(specified_path, filters):
     """
 
@@ -99,6 +102,24 @@ def print_log(log_contents, log_level):
     else:
         logger.info(log_contents)
         print(log_contents)
+
+class ELog(object):
+
+    def __init__(self, module_logger):
+        self.module_logger = module_logger
+
+    def info(self, log_contents, *args):
+        self.module_logger.info(log_contents, *args)
+        print(log_contents)
+
+    def error(self, log_contents, *args):
+        self.module_logger.error(log_contents, *args)
+        print(log_contents)
+
+    def warning(self, log_contents, *args):
+        self.module_logger.warning(log_contents, *args)
+        print(log_contents)
+
 
 if __name__ == '__main__':
     patch_path = 'hybrid_tricrile/nova/nova_patch/'

@@ -6,11 +6,14 @@ import traceback
 
 from keystoneclient.v2_0 import client as keystone_client
 from keystoneclient.v2_0.endpoints import Endpoint
-from utils import print_log
+from utils import print_log, ELog
 from common.econstants import EndpointType, EndpointURL
+from common.engineering_logging import log_for_func_args_of_class
 from novaclient import client as nova_client
 
-logger = logging.getLogger(__name__)
+logger_name = __name__
+logger_module = logging.getLogger(__name__)
+logger = ELog(logger_module)
 
 class RefServices(object):
 
@@ -63,6 +66,7 @@ class RefServices(object):
         d['project_id'] = os.environ['OS_TENANT_NAME']
         return d
 
+    @log_for_func_args_of_class(logger_name)
     def get_tenant_id_for_service(self):
         """
         To get tenant id by tenant name 'service'.
