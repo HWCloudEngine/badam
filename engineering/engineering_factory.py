@@ -11,14 +11,14 @@ from common.engineering_logging import log_for_func_of_class
 import utils
 from utils import AllInOneUsedCMD
 from common.config import ConfigCommon
+
 from services import RefServices
+from common.econstants import ConfigReplacement
 
 logger_name = __name__
 logger = logging.getLogger(__name__)
 
 CONF = cfg.CONF
-
-
 
 class ValidateBase(object):
     @log_for_func_of_class(logger_name)
@@ -66,7 +66,6 @@ class EnginneringFactory(object):
         check_result = self.checker.check()
 
         logger.info('End to execute for %s, result is %s' , self.factory_name, execute_result)
-
 
 class HostnameConfigurator(ConfiguratorBase):
 
@@ -295,8 +294,12 @@ class AllInOneConfigurator(ConfiguratorBase):
             option_metadata_proxy_shared_secret = 'metadata_proxy_shared_secret'
             value_metadata_proxy_shared_secret = 'openstack'
             config_common = ConfigCommon(config.CONF.path_metadata_agent_ini)
-            config_common.set_option(config.CONF.section_default, option_nova_metadata_ip, value_nova_metadata_ip)
-            config_common.set_option(config.CONF.section_default, option_metadata_proxy_shared_secret, value_metadata_proxy_shared_secret)
+            config_common.set_option(config.CONF.section_default,
+                                     option_nova_metadata_ip,
+                                     value_nova_metadata_ip)
+            config_common.set_option(config.CONF.section_default,
+                                     option_metadata_proxy_shared_secret,
+                                     value_metadata_proxy_shared_secret)
             config_common.write_commit()
 
             result = True
@@ -310,6 +313,17 @@ class AllInOneConfigurator(ConfiguratorBase):
 class PatchInstaller(InstallerBase):
 
     def __init__(self, patch_path, openstack_install_path, filters):
+        """
+
+        :param patch_path:
+            for example: /root/tricircle-master/novaproxy/
+                        /root/tricircle-master/juno-patches/nova_scheduling_patch/
+        :param openstack_install_path:
+            for example: '/usr/lib/python2.7/dist-packages/'
+        :param filters:
+            for example: ['.py']
+        :return:
+        """
         # patch_path is /root/tricircle-master/juno-patches/nova/nova_scheduling_patch/
         self.patch_path = patch_path
         # install_path is  openstack installed path'/usr/lib/python2.7/dist-packages/'
@@ -323,15 +337,20 @@ class PatchInstaller(InstallerBase):
 
         :param patch_path: path of patch's source code
         :param filters: [] array of valid suffix of file. for example: ['.py']
-        :return:
+        :return: (absolute path, relative path)
+            for example:
+            [(/root/tricircle-master/novaproxy/nova/compute/clients.py,
+            nova/compute/clients.py), ..]
         """
         return utils.get_files(patch_path, filters)
 
-    def bak_patched_files(self, patch_file):
+    def bak_patched_files(self, patch_file, relative_path):
         """
 
         :param patch_file:  one file of patch's source code files,
             for example: /root/tricircle-master/juno-patches/nova/nova_scheduling_patch/nova/conductor/manager.py
+        :param relative_path:
+            for example: nova/conductor/manager.py
         :return:
         """
         logger.info('Start bak_patched_files, ')
@@ -339,7 +358,7 @@ class PatchInstaller(InstallerBase):
         # for example: if self.patch_path = "/root/tricircle-master/juno-patches/nova/nova_scheduling_patch/"
         # then relative_path of manager.py is "/nova/nova_scheduling_patch/nova/conductor/manager.py"
         relative_path = patch_file.split(self.patch_path)[0]
-        # installed_path is full install path, for example: /usr/lib/python2.7/dist-packages/nova/conductor/manager.py
+
         installed_path = os.path.sep.join([self.openstack_install_path, relative_path])
         if os.path.isdir(self.bak_openstack_path):
             AllInOneUsedCMD.cp_to(installed_path, self.bak_openstack_path)
@@ -350,28 +369,89 @@ class PatchInstaller(InstallerBase):
 
     @log_for_func_of_class(logger_name)
     def install(self):
-        patch_files = self.get_patch_files(self.patch_path, self.filters)
-        for each_patch_file in patch_files:
-            self.bak_patched_files(each_patch_file)
-            AllInOneUsedCMD.cp_to(each_patch_file, self.openstack_install_path)
+        try:
+            patch_files = self.get_patch_files(self.patch_path, self.filters)
+            if not patch_files:
+                utils.print_log('No files in %s' % self.patch_path, logging.ERROR)
 
+            for absolute_path, relative_path in patch_files:
+
+                # installed_path is full install path,
+                # for example: /usr/lib/python2.7/dist-packages/nova/conductor/manager.py
+                install_path = os.path.join(self.openstack_install_path, relative_path)
+                self.bak_patched_files(absolute_path, relative_path)
+                AllInOneUsedCMD.cp_to(absolute_path, install_path)
+        except:
+            utils.print_log('Exception occur when install patch: %s, Exception: %s' %
+                                (self.patch_path, traceback.format_exc()),
+                            logging.ERROR)
 
 class PatchConfigurator(ConfiguratorBase):
-    def __init__(self):
+    """
+    we make the structure of each patch follow the original source code structure.
+    and config file structure is the same as the original config file structure of openstack.
+    so when we need to add this patch, we can read all config files and config in the system config file directly.
+    for example: novaproxy, the structure of patch novaproxy is as following.
+    novaproxy/
+        etc/
+            nova/
+                nova.conf
+                nova-compute.conf
+        nova/
+            compute/
+                clients.py
+                compute_context.py
+    """
+    def __init__(self, absolute_path_of_patch, filter):
         """
 
-        :param patches_config_path: path of patches config file.
-            for example: /root/hybrid_cloud_badam/config/nova.conf
-        :param path_openstack_conf_path:
+        :param absolute_path_of_patch:  path of patches config file.
+            for example: /root/tricircle-master/novaproxy/
+                        /root/tricircle-master/juno-patches/nova_scheduling_patch/
+        :param filter:  ['.conf', '.ini']
         :return:
         """
-        pass
+        self.absolute_path_of_patch = absolute_path_of_patch
+        self.filter = filter
+        self.system_replacement = {
+            ConfigReplacement.AVAILABILITY_ZONE : config.CONF.node_cfg.availability_zone,
+            ConfigReplacement.CASCADED_NODE_IP : config.CONF.node_cfg.cascaded_node_ip,
+            ConfigReplacement.CASCADING_NODE_IP : config.CONF.node_cfg.cascading_node_ip,
+            ConfigReplacement.CINDER_TENANT_ID : RefServices().get_tenant_id_for_admin(),
+            ConfigReplacement.REGION_NAME : config.CONF.node_cfg.region_name,
+            ConfigReplacement.CASCADING_OS_REGION_NAME : config.CONF.node_cfg.cascading_os_region_name,
+            ConfigReplacement.ML2_LOCAL_IP : config.CONF.sysconfig.ml2_local_ip
+        }
 
+    def _get_all_config_files(self):
+        """
 
-class NovaProxyPatchConfig(ConfiguratorBase):
+        :return:[(<absolute_path>, <relative_path>), ..]
 
-    def __init__(self):
-        self.nova_patches_config_path = config.CONF.path_nova_patches_conf
+        """
+        return utils.get_files(self.absolute_path_of_patch, self.filter)
 
     def config(self):
-        pass
+        try:
+            config_files = self._get_all_config_files()
+            if not config_files:
+                utils.print_log('There is no config file in %s ' % self.absolute_path_of_patch, logging.ERROR)
+                return
+            for absolute_path, relative_path in config_files:
+                user_config = ConfigCommon(absolute_path)
+                openstack_config_file = os.path.join(os.path.sep, absolute_path)
+                sys_config = ConfigCommon(openstack_config_file)
+                user_sections = user_config.get_sections()
+                for section in user_sections:
+                    user_options = user_config.get_options(section)
+                    for option in user_options:
+                        user_defined_value = user_config.get_value(section, option)
+                        for replace_symbol in self.system_replacement:
+                            if replace_symbol in user_defined_value:
+                                user_defined_value = user_defined_value % \
+                                                     {replace_symbol : self.system_replacement[replace_symbol]}
+                        sys_config.set_option(section, option, user_defined_value)
+        except:
+            utils.print_log('Exception occur when config : %s, Exception: %s' %
+                                (self.absolute_path_of_patch, traceback.format_exc()),
+                            logging.ERROR)

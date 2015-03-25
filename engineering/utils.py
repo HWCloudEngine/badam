@@ -55,14 +55,18 @@ def get_engineering_s_path():
 def get_hybrid_cloud_badam_parent_path():
     return os.path.sep.join(os.path.realpath(__file__).split(os.path.sep)[:-3])
 
-def get_files(path, filters):
+def get_files(specified_path, filters):
     """
 
+    :param path, absolute path
     :param filters: array, specified valid file suffix.
     :return:
+    for example:
+    [(/root/tricircle-master/novaproxy/nova/compute/clients.py,
+            nova/compute/clients.py), ..]
     """
     files_path = []
-    file_sys_infos = os.walk(path)
+    file_sys_infos = os.walk(specified_path)
 
     for (path, dirs, files) in file_sys_infos:
         if files == []:
@@ -70,8 +74,9 @@ def get_files(path, filters):
         else:
             for file in files:
                 if os.path.splitext(file)[1] in filters:
-                    file_path = os.path.join(path, file)
-                    files_path.append(file_path)
+                    absolute_path = os.path.join(path, file)
+                    relative_path = absolute_path.split(specified_path)
+                    files_path.append((absolute_path, relative_path))
                 else:
                     continue
 
@@ -85,7 +90,6 @@ def get_openstack_installed_path():
         return paths[0]
 
 def print_log(log_contents, log_level):
-    print(log_contents)
     if log_level == logging.WARNING:
         logger.warning(log_contents)
         print(log_contents)

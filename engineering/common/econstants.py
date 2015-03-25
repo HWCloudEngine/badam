@@ -1,8 +1,7 @@
 __author__ = 'nash.xiejun'
-from enum import Enum
 import os
 
-class EndpointType(Enum):
+class EndpointType(object):
     COMPUTE = 'compute'
     VOLUME = 'volume'
     VOLUME2 = 'volume'
@@ -12,7 +11,7 @@ class EndpointType(Enum):
     EC2 = 'ec2'
     METERING = 'metering'
 
-class EndpointURL(Enum):
+class EndpointURL(object):
     COMPUTE = 'http://%s:8774/v2/$(tenant_id)s'
     VOLUME = 'http://%s:8776/v1/$(tenant_id)s'
     VOLUME2 = 'http://%s:8776/v2/$(tenant_id)s'
@@ -22,7 +21,14 @@ class EndpointURL(Enum):
     EC2 = 'http://%s:8773/services/Cloud'
     METERING = 'http://%s:8777/'
 
-class PathConfigFile(Enum):
+class ServiceName(object):
+    NOVA = 'nova'
+    CINDER = 'cinder'
+    GLANCE = 'glance'
+    NEUTRON = 'neutron'
+    KEYSTONE = 'keystone'
+
+class PathConfigFile(object):
     ROOT = os.path.sep
 
     ETC = 'etc'
@@ -62,14 +68,7 @@ class PathConfigFile(Enum):
     CINDER_CONF = 'cinder.conf'
     CINDER = os.path.join(ETC, ServiceName.CINDER, CINDER_CONF)
 
-class ServiceName(Enum):
-    NOVA = 'nova'
-    CINDER = 'cinder'
-    GLANCE = 'glance'
-    NEUTRON = 'neutron'
-    KEYSTONE = 'keystone'
-
-class PathTriCircle(Enum):
+class PathTriCircle(object):
     TRICIRCLE = 'tricircle-master'
     JUNO_PATCHES = 'juno-patches'
     NOVA_PROXY = 'novaproxy'
@@ -88,6 +87,7 @@ class PathTriCircle(Enum):
     PATCH_NEUTRON_CASCADED_TIMESTAMP = 'neutron_timestamp_cascaded_patch'
     PATCH_NEUTRON_CASCADING_BIG2LAYER = 'neutron_cascading_big2layer_patch'
     PATCH_NEUTRON_CASCADING_L3 = 'neutron_cascading_l3_patch'
+    PATCH_NOVA_SCHEDULING = 'nova_scheduling_patch'
 
     # tricircle-master/glancesync
     PATH_CASCADING_GLANCE_SYNC = os.path.join(TRICIRCLE, GLANCE_SYNC)
@@ -116,14 +116,34 @@ class PathTriCircle(Enum):
     # tricircle-master/juno-patches/neutron/neutron_cascading_l3_patch
     PATH_PATCH_NEUTRON_CASCADING_L3 = os.path.join(TRICIRCLE, JUNO_PATCHES, ServiceName.NEUTRON, PATCH_NEUTRON_CASCADING_L3)
     # tricircle-master/juno-patches/neutron/neutron_timestamp_cascaded_patch
-    PATCH_NEUTRON_CASCADED_TIMESTAMP = os.path.join(TRICIRCLE, JUNO_PATCHES, ServiceName.NEUTRON, PATCH_NEUTRON_CASCADED_TIMESTAMP)
+    PATH_PATCH_NEUTRON_CASCADED_TIMESTAMP = os.path.join(TRICIRCLE, JUNO_PATCHES, ServiceName.NEUTRON, PATCH_NEUTRON_CASCADED_TIMESTAMP)
 
-class PathTricircleConfigFile(Enum):
+    # tricircle-master/juno-patches/nova/nova_scheduling_patch
+    PATH_PATCH_NOVA_SCHEDULING = os.path.join(TRICIRCLE, JUNO_PATCHES, ServiceName.NOVA, PATCH_NOVA_SCHEDULING)
+
+    PATCH_TO_PATH = {
+        PATCH_NOVA_SCHEDULING : PATH_PATCH_NOVA_SCHEDULING,
+        PATCH_NEUTRON_CASCADING_BIG2LAYER : PATH_PATCH_NEUTRON_CASCADING_BIG2LAYER,
+        PATCH_NEUTRON_CASCADING_L3 : PATH_PATCH_NEUTRON_CASCADING_L3,
+
+        PATCH_NEUTRON_CASCADED_BIG2LAYER : PATH_PATCH_NEUTRON_CASCADED_BIG2LAYER,
+        PATCH_NEUTRON_CASCADED_L3 : PATH_PATCH_NEUTRON_CASCADED_L3,
+
+        PATCH_CINDER_CASCADED_TIMESTAMP : PATH_PATCH_CINDER_CASCADED_TIMESTAMP
+    }
+
+class PathTricircleConfigFile(object):
     PROXY_CINDER = os.path.join(PathTriCircle.PATH_PROXY_CINDER, PathConfigFile.CINDER)
     PROXY_NEUTRON_L2 = os.path.join(PathTriCircle.PATH_PROXY_NEUTRON_L2, PathConfigFile.ML2)
     PROXY_NEUTRON_L3 = os.path.join(PathTriCircle.PATH_PROXY_NEUTRON_L3, PathConfigFile.L3_PROXY)
     PROXY_NOVA_COMPUTE = os.path.join(PathTriCircle.PATH_PROXY_NOVA, PathConfigFile.NOVA_COMPUTE)
     PROXY_NOVA = os.path.join(PathTriCircle.PATH_PROXY_NOVA, PathConfigFile.NOVA)
 
-
-
+class ConfigReplacement(object):
+    REGION_NAME = 'region_name'
+    CASCADED_NODE_IP = 'cascaded_node_ip'
+    CASCADING_NODE_IP = 'cascading_node_ip'
+    CINDER_TENANT_ID = 'cinder_tenant_id'
+    AVAILABILITY_ZONE = 'availability_zone',
+    CASCADING_OS_REGION_NAME = 'cascading_os_region_name',
+    ML2_LOCAL_IP = 'ml2_local_ip'

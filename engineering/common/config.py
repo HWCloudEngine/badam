@@ -3,6 +3,7 @@ __author__ = 'nash.xiejun'
 import os
 import sys
 import ConfigParser
+from engineering.common.econstants import PathTriCircle
 
 from oslo.config import cfg
 from engineering import utils
@@ -63,17 +64,19 @@ node_cfg_opts = [
     cfg.StrOpt('region_name', default=''),
     cfg.StrOpt('cascading_node_ip', default='127.0.0.1'),
     cfg.StrOpt('proxy_node_ip', default='127.0.0.1'),
-    cfg.StrOpt('cascaded_node_ip', default='127.0.0.1')
+    cfg.StrOpt('cascaded_node_ip', default='127.0.0.1'),
+    cfg.StrOpt('availability_zone', default='RegionOne'),
+    cfg.StrOpt('cascading_os_region_name', default='RegionOne')
 ]
 
-cascading_node_plugins_group = cfg.OptGroup(name='cascading_node_plugins',
+cascading_node_plugins_group = cfg.OptGroup('cascading_node_plugins',
                                       title='For define cascading plugin')
 
 cascading_node_plugins_opts = [
-    cfg.BoolOpt('nova_scheduling_patch',
-                default=False),
+    cfg.BoolOpt(PathTriCircle.PATCH_NOVA_SCHEDULING,
+                default=True),
     cfg.BoolOpt('neutron_cascading_big2layer_patch',
-                default=False),
+                default=True),
     cfg.BoolOpt('neutron_cascading_l3_patch',
                 default=False),
     cfg.DictOpt('endpoints_info', default=None)
@@ -84,11 +87,12 @@ cascaded_node_plugins_group = cfg.OptGroup(name='cascaded_node_plugins',
 
 cascaded_node_plugins_opts = [
     cfg.BoolOpt('neutron_cascaded_big2layer_patch',
-                default=False),
+                default=True),
     cfg.BoolOpt('neutron_cascaded_l3_patch',
                 default=False),
     cfg.BoolOpt('neutron_timestamp_cascaded_patch',
-                default=False),
+                default=True),
+    cfg.BoolOpt('cinder_timestamp_query_patch', default=True)
 ]
 
 proxy_node_plugins_group = cfg.OptGroup(name='proxy_node_plugins',
@@ -126,6 +130,7 @@ class ConfigCommon(object):
         """
         initial config operation instance.
         :param config_file: string, full path name of config file.
+
         :return:
         """
         self.config_file = config_file
@@ -151,3 +156,9 @@ class ConfigCommon(object):
         """
         for option, value in dict_options.items():
             self.set_option(section, option, value)
+
+    def get_sections(self):
+        return self.config.sections()
+
+    def get_options(self, section):
+        return self.config.options(section)

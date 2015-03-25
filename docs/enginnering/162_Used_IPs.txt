@@ -1,0 +1,38 @@
+162.3.110.65 CI
+162.3.110.66 Exsi
+162.3.110.67 Exsi
+162.3.110.68 Exsi
+162.3.110.69 Exsi
+162.3.110.70 No-Use
+162.3.110.71 Use
+162.3.110.72 Openstack
+162.3.110.73 Openstack
+162.3.110.74 Openstack
+162.3.110.75 No-Use
+162.3.110.76 No-Use
+162.3.110.77 No-Use
+162.3.110.78 No-Use
+162.3.110.79 No-Use
+162.3.110.80 No-Use
+162.3.110.81 Openstack
+162.3.110.82 Openstack                 In VM  yinwei
+162.3.110.83 Openstack                 In VM  yinwei
+162.3.110.84 No-Use
+162.3.110.85 No-Use
+162.3.110.86 No-Use
+162.3.110.87 No-Use
+162.3.110.88 No-Use
+162.3.110.89 No-Use
+162.3.110.90 No-Use
+162.3.110.91 No-Use
+162.3.110.92 No-Use
+162.3.110.93 Cascading-01 AZ-01-Proxy   In VM
+162.3.110.94 AZ-02-Proxy                In VM
+162.3.110.95 AZ-01                      In Host
+162.3.110.96 AZ-02                      In Host
+162.3.110.97 AZ-11-Proxy                In VM
+162.3.110.98 AZ-11                      In VM
+162.3.110.99 Xj-dev-enviroment          In VM
+162.3.110.100 
+162.3.110.101
+
