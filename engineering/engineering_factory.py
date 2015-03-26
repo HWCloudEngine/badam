@@ -6,7 +6,7 @@ import os
 
 from oslo.config import cfg
 
-from common import config, engineering_logging
+from common import config
 from common.engineering_logging import log_for_func_of_class
 import utils
 from utils import AllInOneUsedCMD, print_log, ELog
@@ -54,6 +54,8 @@ class EnginneringFactory(object):
         return self
 
     def execute(self):
+        big_sep = '***************'
+        logger.info(big_sep)
         print_log('Start to execute for %s' % self.factory_name, logging.INFO)
 
         execute_result = True
@@ -71,6 +73,7 @@ class EnginneringFactory(object):
         logger.info(sep)
 
         print_log('End to execute for %s, result is %s' % (self.factory_name, execute_result), logging.INFO)
+        logger.info(big_sep)
 
 class HostnameConfigurator(ConfiguratorBase):
 
@@ -340,7 +343,7 @@ class PatchInstaller(InstallerBase):
         self.openstack_install_path = openstack_install_path
         # filter is valid suffix of files, for example: ['.py']
         self.filters = filters
-        self.bak_openstack_path = config.CONF.openstack_bak_path
+        self.bak_openstack_path = config.CONF.sysconfig.openstack_bak_path
 
     def get_patch_files(self, patch_path, filters):
         """
@@ -354,7 +357,7 @@ class PatchInstaller(InstallerBase):
         """
         return utils.get_files(patch_path, filters)
 
-    def bak_patched_files(self, patch_file, relative_path):
+    def bak_patched_file(self, bak_file_path, relative_path):
         """
 
         :param patch_file:  one file of patch's source code files,
@@ -363,38 +366,43 @@ class PatchInstaller(InstallerBase):
             for example: nova/conductor/manager.py
         :return:
         """
-        logger.info('Start bak_patched_files, ')
+        logger.info('Start bak_patched_file, bak_file_path:%s, relative_path:%s' % (bak_file_path, relative_path))
         # relative_path is relative to this path(self.patch_path),
         # for example: if self.patch_path = "/root/tricircle-master/juno-patches/nova/nova_scheduling_patch/"
         # then relative_path of manager.py is "/nova/nova_scheduling_patch/nova/conductor/manager.py"
-        relative_path = patch_file.split(self.patch_path)[0]
+        if not os.path.isdir(self.bak_openstack_path):
+            AllInOneUsedCMD.mkdir(self.bak_openstack_path)
+        bak_dir = os.path.join(self.bak_openstack_path, os.path.dirname(relative_path))
+        if not os.path.isdir(bak_dir):
+            AllInOneUsedCMD.mkdir(bak_dir)
 
-        installed_path = os.path.sep.join([self.openstack_install_path, relative_path])
-        if os.path.isdir(self.bak_openstack_path):
-            AllInOneUsedCMD.cp_to(installed_path, self.bak_openstack_path)
+        if os.path.isfile(bak_file_path):
+            AllInOneUsedCMD.cp_to(bak_file_path, bak_dir)
         else:
-            err_info = 'Bak path of openstack <%s> is not exist' % self.bak_openstack_path
-            logger.error(err_info)
-            raise ValueError(err_info)
+            info = 'file: <%s> is a new file, no need to bak.' % bak_file_path
+            logger.error(info)
 
     @log_for_func_of_class(logger_name)
     def install(self):
+        result = 'FAILED'
         try:
             patch_files = self.get_patch_files(self.patch_path, self.filters)
             if not patch_files:
                 utils.print_log('No files in %s' % self.patch_path, logging.ERROR)
-
             for absolute_path, relative_path in patch_files:
 
                 # installed_path is full install path,
                 # for example: /usr/lib/python2.7/dist-packages/nova/conductor/manager.py
-                install_path = os.path.join(self.openstack_install_path, relative_path)
-                self.bak_patched_files(absolute_path, relative_path)
-                AllInOneUsedCMD.cp_to(absolute_path, install_path)
+                openstack_installed_file = os.path.join(self.openstack_install_path, relative_path)
+                self.bak_patched_file(openstack_installed_file, relative_path)
+                AllInOneUsedCMD.cp_to(absolute_path, openstack_installed_file)
+                result = 'SUCCESS'
         except:
             utils.print_log('Exception occur when install patch: %s, Exception: %s' %
                                 (self.patch_path, traceback.format_exc()),
                             logging.ERROR)
+        return result
+
 
 class PatchConfigurator(ConfiguratorBase):
     """
@@ -441,7 +449,9 @@ class PatchConfigurator(ConfiguratorBase):
         """
         return utils.get_files(self.absolute_path_of_patch, self.filter)
 
+    @log_for_func_of_class(logger_name)
     def config(self):
+        result = 'FAILED'
         try:
             config_files = self._get_all_config_files()
             if not config_files:
@@ -449,19 +459,28 @@ class PatchConfigurator(ConfiguratorBase):
                 return
             for absolute_path, relative_path in config_files:
                 user_config = ConfigCommon(absolute_path)
-                openstack_config_file = os.path.join(os.path.sep, absolute_path)
+                openstack_config_file = os.path.join(os.path.sep, relative_path)
                 sys_config = ConfigCommon(openstack_config_file)
+
+                default_options = user_config.get_options_dict_of_default()
+                for key, value in default_options.items():
+                    sys_config.set_default(key, value)
+
                 user_sections = user_config.get_sections()
                 for section in user_sections:
-                    user_options = user_config.get_options(section)
-                    for option in user_options:
-                        user_defined_value = user_config.get_value(section, option)
-                        for replace_symbol in self.system_replacement:
-                            if replace_symbol in user_defined_value:
-                                user_defined_value = user_defined_value % \
-                                                     {replace_symbol : self.system_replacement[replace_symbol]}
-                        sys_config.set_option(section, option, user_defined_value)
+                    section_options = user_config.get_options_dict_of_section(section)
+                    for key, value in section_options.items():
+                        for replace_symbol in self.system_replacement.keys():
+                            add_brasces_symbol = ''.join(['%(', value, ')s'])
+                            if add_brasces_symbol in value:
+                                replace_value = self.system_replacement.get(replace_symbol)
+                                value = value % {replace_symbol : replace_value}
+                            sys_config.set_option(section, key, value)
+
+                sys_config.write_commit()
+            result = 'SUCCESS'
         except:
             utils.print_log('Exception occur when config : %s, Exception: %s' %
                                 (self.absolute_path_of_patch, traceback.format_exc()),
                             logging.ERROR)
+        return result

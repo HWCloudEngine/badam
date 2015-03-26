@@ -4,6 +4,7 @@ from utils import print_log, get_hybrid_cloud_badam_path
 sys.path.append(get_hybrid_cloud_badam_path())
 
 from common import config
+from common.econstants import OperationType
 from engineering_factory import EnginneringFactory, HostnameConfigurator, AllInOneConfigurator
 from installation import CascadingDeploy
 
@@ -24,11 +25,11 @@ def main():
 
     operation = config.CONF.sysconfig.operation
     print_log('Your operation is - <%s>' % operation, logging.INFO)
-    if operation == 'cfg-hostname':
+    if operation == OperationType.CFG_HOST_NAME:
         EnginneringFactory(operation, configurator=HostnameConfigurator()).execute()
-    elif operation == 'cfg-all-in-one':
+    elif operation == OperationType.CFG_ALL_IN_ONE:
         EnginneringFactory(operation, configurator=AllInOneConfigurator()).execute()
-    elif operation == 'deploy-cascade-openstack':
+    elif operation == OperationType.DEPLOY_HYBRID_CLOUD:
         CascadingDeploy().deploy_cascading_modules()
     else:
         err_info = 'Invalid operation-<%s>, please check your config file.' % operation

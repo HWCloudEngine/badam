@@ -48,7 +48,8 @@ sysconfig_opts = [
                default='operation_default'),
     cfg.StrOpt('local_host_ip',
                default='127.0.0.1'),
-    cfg.StrOpt('ml2_local_ip', default='10.0.0.99')
+    cfg.StrOpt('ml2_local_ip', default='10.0.0.99'),
+    cfg.StrOpt('openstack_bak_path', default='/root/openstack_bak')
 ]
 
 node_cfg_group = cfg.OptGroup(name='node_cfg',
@@ -67,6 +68,9 @@ node_cfg_opts = [
     cfg.StrOpt('availability_zone', default='RegionOne'),
     cfg.StrOpt('cascading_os_region_name', default='RegionOne')
 ]
+
+CONF.register_group(node_cfg_group)
+CONF.register_opts(node_cfg_opts, node_cfg_group)
 
 cascading_node_plugins_group = cfg.OptGroup('cascading_node_plugins',
                                       title='For define cascading plugin')
@@ -133,18 +137,25 @@ class ConfigCommon(object):
         :return:
         """
         self.config_file = config_file
-        self.config = ConfigParser.SafeConfigParser()
-        self.config.read(self.config_file)
+        self.config_parser = ConfigParser.RawConfigParser()
+        self.config_parser.read(self.config_file)
 
     def write_commit(self):
         with open(self.config_file, 'w') as config_file_obj:
-            self.config.write(config_file_obj)
+            self.config_parser.write(config_file_obj)
+
+    def set_default(self, option, value):
+        self.config_parser.set('DEFAULT', option, value)
 
     def set_option(self, section, option, value):
-        self.config.set(section, option, value)
+        if self.config_parser.has_section(section):
+            self.config_parser.set(section, option, value)
+        else:
+            self.config_parser.add_section(section)
+            self.config_parser.set(section, option, value)
 
     def get_value(self, section, option):
-        return self.config.get(section, option)
+        return self.config_parser.get(section, option)
 
     def set_options(self, section, dict_options):
         """
@@ -157,7 +168,22 @@ class ConfigCommon(object):
             self.set_option(section, option, value)
 
     def get_sections(self):
-        return self.config.sections()
+        return self.config_parser.sections()
 
     def get_options(self, section):
-        return self.config.options(section)
+        return self.config_parser.options(section)
+
+    def _filter_name(self, original_dict_key_value_of_section):
+        dict_key_value = {}
+        for key, value in original_dict_key_value_of_section.items():
+            if key != '__name__':
+                dict_key_value[key] = value
+        return dict_key_value
+
+    def get_options_dict_of_default(self):
+        original_dict_key_value_of_section = self.config_parser.defaults()
+        return self._filter_name(original_dict_key_value_of_section)
+
+    def get_options_dict_of_section(self, section):
+        original_dict_key_value_of_section = self.config_parser._sections.get(section)
+        return self._filter_name(original_dict_key_value_of_section)

@@ -1,6 +1,11 @@
 __author__ = 'nash.xiejun'
 import os
 
+class OperationType(object):
+    CFG_ALL_IN_ONE = 'cfg-all-in-one'
+    CFG_HOST_NAME = 'cfg-hostname'
+    DEPLOY_HYBRID_CLOUD = 'deploy-cascade-openstack'
+
 class EndpointType(object):
     COMPUTE = 'compute'
     VOLUME = 'volume'
@@ -100,6 +105,7 @@ class PathTriCircle(object):
 
     # tricircle-master/novaproxy
     PATH_PROXY_NOVA = os.path.join(TRICIRCLE, NOVA_PROXY)
+
     # tricircle-master/juno-patches/cinder/timestamp-query-patch
     PATH_PATCH_CINDER_CASCADED_TIMESTAMP = os.path.join(TRICIRCLE, JUNO_PATCHES, ServiceName.CINDER, PATCH_CINDER_CASCADED_TIMESTAMP)
     # tricircle-master/juno-patches/glance/glance_location_patch
@@ -129,7 +135,11 @@ class PathTriCircle(object):
         PATCH_NEUTRON_CASCADED_BIG2LAYER : PATH_PATCH_NEUTRON_CASCADED_BIG2LAYER,
         PATCH_NEUTRON_CASCADED_L3 : PATH_PATCH_NEUTRON_CASCADED_L3,
 
-        PATCH_CINDER_CASCADED_TIMESTAMP : PATH_PATCH_CINDER_CASCADED_TIMESTAMP
+        PATCH_CINDER_CASCADED_TIMESTAMP : PATH_PATCH_CINDER_CASCADED_TIMESTAMP,
+        NOVA_PROXY : PATH_PROXY_NOVA,
+        CINDER_PROXY : PATH_PROXY_CINDER,
+        L2_PROXY : PATH_PROXY_NEUTRON_L2,
+        L3_PROXY : PATH_PROXY_NEUTRON_L3
     }
 
 class PathTricircleConfigFile(object):
@@ -144,6 +154,6 @@ class ConfigReplacement(object):
     CASCADED_NODE_IP = 'cascaded_node_ip'
     CASCADING_NODE_IP = 'cascading_node_ip'
     CINDER_TENANT_ID = 'cinder_tenant_id'
-    AVAILABILITY_ZONE = 'availability_zone',
-    CASCADING_OS_REGION_NAME = 'cascading_os_region_name',
+    AVAILABILITY_ZONE = 'availability_zone'
+    CASCADING_OS_REGION_NAME = 'cascading_os_region_name'
     ML2_LOCAL_IP = 'ml2_local_ip'

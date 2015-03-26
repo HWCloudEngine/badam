@@ -10,31 +10,47 @@ from common.econstants import PathTriCircle
 import utils
 from utils import ELog
 
-logger = logging.getLogger(__name__)
+module_logger = logging.getLogger(__name__)
+logger = ELog(module_logger)
 
 class CascadingDeploy(object):
 
     def deploy_cascading_modules(self):
-        result_deploy = False
+        seps = '##################'
+        seps_short = '====='
+        logger.info('%s Start to deploy cascading modules %s' % (seps, seps))
+        logger.info('')
 
-        if config.CONF.node_cfg.cascading_node == True:
+        if config.CONF.node_cfg.cascading_node is True:
+            logger.info('')
+            logger.info('%s Start to deploy CASCADING NODE %s' % (seps_short, seps_short))
             self.create_endpoints_in_cascading_node()
             self.deploy_nova_scheduling_patch()
             self.deploy_neutron_cascading_big2layer_patch()
             self.deploy_neutron_cascading_l3_patch_patch()
+            logger.info('%s SUCCESS to deploy CASCADING NODE %s' % (seps_short, seps_short))
 
-        if config.CONF.node_cfg.cascaded_node == True:
+        if config.CONF.node_cfg.cascaded_node is True:
+            logger.info('')
+            logger.info('%s Start to deploy CASCADED NODE %s' % (seps_short, seps_short))
             self.creat_ag_az_for_cascaded_node()
             self.deploy_neutron_cascaded_big2layer_patch()
             self.deploy_neutron_cascaded_l3_patch()
             self.deploy_neutron_timestamp_cascaded_patch()
             self.deploy_cinder_cascaded_cinder_timestamp_query_patch()
+            logger.info('%s SUCCESS to deploy CASCADED NODE %s' % (seps_short, seps_short))
 
-        if config.CONF.node_cfg.proxy_node == True:
+        if config.CONF.node_cfg.proxy_node is True:
+            logger.info('')
+            logger.info('%s Start to deploy PROXY NODE %s' % (seps_short, seps_short))
             self.deploy_nova_proxy()
             self.deploy_cinder_proxy()
             self.deploy_neutron_l2_proxy()
             self.deploy_neutron_l3_proxy()
+            logger.info('%s SUCCESS to deploy PROXY NODE %s' % (seps_short, seps_short))
+
+        logger.info('')
+        logger.info('%s Success to deploy cascading modules %s' % (seps, seps))
 
     def create_endpoints_in_cascading_node(self):
         #endpoints_info = {sz_az_01: 162.3.110.95,  sz_az_02: 162.3.110.96, sz_az_11: 162.3.110.98}
@@ -65,20 +81,20 @@ class CascadingDeploy(object):
         :param config_file_filter: [], suffix array of files which will be config. for example: ['.conf', '.ini']
         :return:
         """
-        absolute_path_of_patch = os.path.join(utils.get_hybrid_cloud_badam_parent_path(), PathTriCircle.PATCH_TO_PATH[patch_name])
-        installer = PatchInstaller(absolute_path_of_patch, utils.get_openstack_installed_path(), install_file_filter)
-        configurator = PatchConfigurator(absolute_path_of_patch, config_file_filter)
-        patch_deploy_factory = EnginneringFactory(patch_name,
-                                                  installer=installer,
-                                                  configurator=configurator)
         if  patch_on_off== False:
             utils.print_log('Config for %s is False, no need to install.' % patch_name, logging.INFO)
             return False
         elif patch_on_off == True:
+            absolute_path_of_patch = os.path.join(utils.get_hybrid_cloud_badam_parent_path(), PathTriCircle.PATCH_TO_PATH[patch_name])
+            openstack_install_path = utils.get_openstack_installed_path()
+            installer = PatchInstaller(absolute_path_of_patch, openstack_install_path, install_file_filter)
+            configurator = PatchConfigurator(absolute_path_of_patch, config_file_filter)
+            patch_deploy_factory = EnginneringFactory(patch_name,
+                                                      installer=installer,
+                                                      configurator=configurator)
             patch_deploy_factory.execute()
         else:
-            ELog.error('Config for cascading node <%s> is invalid, value is: %s' %
-                            (patch_name, patch_on_off))
+            logger.error('Config for cascading node <%s> is invalid, value is: %s' % (patch_name, patch_on_off))
             return False
 
     def deploy_nova_scheduling_patch(self):
@@ -97,7 +113,7 @@ class CascadingDeploy(object):
         install_filter = ['.py']
         config_filter = ['.conf', '.ini']
         self.deploy_patch(config.CONF.cascading_node_plugins.neutron_cascading_l3_patch,
-                          PathTriCircle.PATH_PATCH_NEUTRON_CASCADING_L3, install_filter, config_filter)
+                          PathTriCircle.PATCH_NEUTRON_CASCADING_L3, install_filter, config_filter)
 
     def deploy_neutron_cascaded_big2layer_patch(self):
         install_filter = ['.py']
