@@ -7,9 +7,10 @@ from common import config
 from common.econstants import OperationType
 from engineering_factory import EnginneringFactory, HostnameConfigurator, AllInOneConfigurator
 from installation import CascadingDeploy
+from utils import ELog
 
-
-logger = logging.getLogger(__name__)
+module_logger = logging.getLogger(__name__)
+logger = ELog(module_logger)
 
 def main():
     """
@@ -21,10 +22,10 @@ def main():
         #python install_exe.py --config-file config/configuration.conf
     :return:
     """
-    print_log('Start to doing deploy...', logging.INFO)
+    logger.info('Start to doing deploy...')
 
     operation = config.CONF.sysconfig.operation
-    print_log('Your operation is - <%s>' % operation, logging.INFO)
+    logger.info('Your operation is - <%s>' % operation)
     if operation == OperationType.CFG_HOST_NAME:
         EnginneringFactory(operation, configurator=HostnameConfigurator()).execute()
     elif operation == OperationType.CFG_ALL_IN_ONE:

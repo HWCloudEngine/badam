@@ -54,12 +54,13 @@ class EnginneringFactory(object):
         return self
 
     def execute(self):
-        big_sep = '***************'
+        big_sep = '**********************************'
         logger.info(big_sep)
-        print_log('Start to execute for %s' % self.factory_name, logging.INFO)
+        logger.info('')
+        logger.info('**** Start to deploy for - %s - ****' % self.factory_name)
 
         execute_result = True
-        sep = '******'
+        sep = '*****************'
         logger.info(sep)
         logger.info(sep)
         validate_result = self.validator.validate()
@@ -72,8 +73,8 @@ class EnginneringFactory(object):
         logger.info(sep)
         logger.info(sep)
 
-        print_log('End to execute for %s, result is %s' % (self.factory_name, execute_result), logging.INFO)
         logger.info(big_sep)
+        logger.info('**** SUCCESS to deploy for - %s - ****' % self.factory_name)
 
 class HostnameConfigurator(ConfiguratorBase):
 
@@ -154,12 +155,11 @@ class AllInOneConfigurator(ConfiguratorBase):
         try:
             vncserver_listen = '0.0.0.0'
             path_nova_conf_file = config.CONF.path_nova_conf
-            section_default = config.CONF.section_default
 
             config_common = ConfigCommon(path_nova_conf_file)
-            config_common.set_option(section_default, 'vncserver_listen', vncserver_listen)
-            config_common.set_option(section_default, 'service_metadata_proxy', 'False')
-            config_common.set_option(section_default, 'metadata_proxy_shared_secret', 'openstack')
+            config_common.set_default('vncserver_listen', vncserver_listen)
+            config_common.set_default('service_metadata_proxy', 'False')
+            config_common.set_default('metadata_proxy_shared_secret', 'openstack')
             config_common.write_commit()
             result = True
         except:
@@ -185,7 +185,7 @@ class AllInOneConfigurator(ConfiguratorBase):
         value_nova_admin_tenant_id = RefServices().get_tenant_id_for_service()
         logger.info('tenant id of service is <%s>' % (value_nova_admin_tenant_id))
         config_common = ConfigCommon(path_neutron_conf)
-        config_common.set_option(config.CONF.section_default, option_nova_admin_tenant_id, value_nova_admin_tenant_id)
+        config_common.set_default(option_nova_admin_tenant_id, value_nova_admin_tenant_id)
         config_common.write_commit()
 
     @log_for_func_of_class
@@ -251,7 +251,7 @@ class AllInOneConfigurator(ConfiguratorBase):
             option_external_network_bridge = 'external_network_bridge'
             value_external_network_bridge = 'br-ex'
             config_common = ConfigCommon(config.CONF.path_l3_agent)
-            config_common.set_option(config.CONF.section_default, option_external_network_bridge, value_external_network_bridge)
+            config_common.set_default( option_external_network_bridge, value_external_network_bridge)
             result = True
         except:
             err_info = 'Exception occur when config l3_agent.ini. Exception: %s' % traceback.format_exc()
@@ -279,8 +279,8 @@ class AllInOneConfigurator(ConfiguratorBase):
             option_use_namespaces = 'use_namespace'
             value_use_namespaces = 'False'
             common_config = ConfigCommon(config.CONF.path_dhcp_agent_ini)
-            common_config.set_option(config.CONF.section_default, option_dhcp_driver, value_dhcp_driver)
-            common_config.set_option(config.CONF.section_default, option_use_namespaces, value_use_namespaces)
+            common_config.set_default(option_dhcp_driver, value_dhcp_driver)
+            common_config.set_default(option_use_namespaces, value_use_namespaces)
             common_config.write_commit()
             result = True
         except:
@@ -307,11 +307,9 @@ class AllInOneConfigurator(ConfiguratorBase):
             option_metadata_proxy_shared_secret = 'metadata_proxy_shared_secret'
             value_metadata_proxy_shared_secret = 'openstack'
             config_common = ConfigCommon(config.CONF.path_metadata_agent_ini)
-            config_common.set_option(config.CONF.section_default,
-                                     option_nova_metadata_ip,
+            config_common.set_default(option_nova_metadata_ip,
                                      value_nova_metadata_ip)
-            config_common.set_option(config.CONF.section_default,
-                                     option_metadata_proxy_shared_secret,
+            config_common.set_default(option_metadata_proxy_shared_secret,
                                      value_metadata_proxy_shared_secret)
             config_common.write_commit()
 
@@ -380,7 +378,8 @@ class PatchInstaller(InstallerBase):
             AllInOneUsedCMD.cp_to(bak_file_path, bak_dir)
         else:
             info = 'file: <%s> is a new file, no need to bak.' % bak_file_path
-            logger.error(info)
+            logger.info(info)
+        logger.info('Success to bak_patched_file, bak_file_path:%s' % bak_file_path)
 
     @log_for_func_of_class(logger_name)
     def install(self):
@@ -388,19 +387,23 @@ class PatchInstaller(InstallerBase):
         try:
             patch_files = self.get_patch_files(self.patch_path, self.filters)
             if not patch_files:
-                utils.print_log('No files in %s' % self.patch_path, logging.ERROR)
+                logger.error('No files in %s' % self.patch_path)
             for absolute_path, relative_path in patch_files:
 
                 # installed_path is full install path,
                 # for example: /usr/lib/python2.7/dist-packages/nova/conductor/manager.py
                 openstack_installed_file = os.path.join(self.openstack_install_path, relative_path)
                 self.bak_patched_file(openstack_installed_file, relative_path)
-                AllInOneUsedCMD.cp_to(absolute_path, openstack_installed_file)
+
+                cp_result = AllInOneUsedCMD.cp_to(absolute_path, openstack_installed_file)
+                if cp_result:
+                    logger.info('Success to copy source file:%s' % absolute_path)
+                else:
+                    logger.info('Failed to copy source file:%s' % absolute_path)
                 result = 'SUCCESS'
         except:
-            utils.print_log('Exception occur when install patch: %s, Exception: %s' %
-                                (self.patch_path, traceback.format_exc()),
-                            logging.ERROR)
+            logger.error('Exception occur when install patch: %s, Exception: %s' %
+                                (self.patch_path, traceback.format_exc()))
         return result
 
 
@@ -440,6 +443,7 @@ class PatchConfigurator(ConfiguratorBase):
             ConfigReplacement.CASCADING_OS_REGION_NAME : config.CONF.node_cfg.cascading_os_region_name,
             ConfigReplacement.ML2_LOCAL_IP : config.CONF.sysconfig.ml2_local_ip
         }
+        self.exclude_replacement = ['project_id']
 
     def _get_all_config_files(self):
         """
@@ -455,32 +459,49 @@ class PatchConfigurator(ConfiguratorBase):
         try:
             config_files = self._get_all_config_files()
             if not config_files:
-                utils.print_log('There is no config file in %s ' % self.absolute_path_of_patch, logging.ERROR)
+                logger.info('There is no config file in %s ' % self.absolute_path_of_patch)
                 return
             for absolute_path, relative_path in config_files:
                 user_config = ConfigCommon(absolute_path)
                 openstack_config_file = os.path.join(os.path.sep, relative_path)
                 sys_config = ConfigCommon(openstack_config_file)
-
                 default_options = user_config.get_options_dict_of_default()
                 for key, value in default_options.items():
+                    value = self.replace_value_for_sysconfig(key, value)
                     sys_config.set_default(key, value)
 
                 user_sections = user_config.get_sections()
                 for section in user_sections:
                     section_options = user_config.get_options_dict_of_section(section)
                     for key, value in section_options.items():
-                        for replace_symbol in self.system_replacement.keys():
-                            add_brasces_symbol = ''.join(['%(', value, ')s'])
-                            if add_brasces_symbol in value:
-                                replace_value = self.system_replacement.get(replace_symbol)
-                                value = value % {replace_symbol : replace_value}
-                            sys_config.set_option(section, key, value)
+                        value = self.replace_value_for_sysconfig(key, value)
+                        sys_config.set_default(key, value)
 
                 sys_config.write_commit()
             result = 'SUCCESS'
         except:
-            utils.print_log('Exception occur when config : %s, Exception: %s' %
-                                (self.absolute_path_of_patch, traceback.format_exc()),
-                            logging.ERROR)
+            logger.error('Exception occur when config : %s, Exception: %s' %
+                                (self.absolute_path_of_patch, traceback.format_exc()))
         return result
+
+    def replace_value_for_sysconfig(self, key, value):
+        try:
+            if key == 'cinder_endpoint_template':
+                value = 'http://%(cascading_node_ip)s:8776/v2/'
+            if key == 'cascaded_cinder_url':
+                value = 'http://%(cascaded_node_ip)s:8776/v2/'
+
+            for replace_symbol in self.system_replacement.keys():
+                add_brasces_symbol = ''.join(['(', replace_symbol, ')'])
+                if add_brasces_symbol in value:
+                    replace_value = self.system_replacement.get(replace_symbol)
+                    value = value % {replace_symbol : replace_value}
+
+            if key == 'cinder_endpoint_template':
+                value = ''.join([value, '%(project_id)s'])
+            if key == 'cascaded_cinder_url':
+                value = ''.join([value, '%(project_id)s'])
+        except:
+            logger.error('Exception occur when replace value for key: %s, value: %s, Exception is: %s' %
+                         (key, value, traceback.format_exc()))
+        return value

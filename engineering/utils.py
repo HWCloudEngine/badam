@@ -25,6 +25,7 @@ class ELog(object):
 
 module_logger = logging.getLogger(__name__)
 logger = ELog(module_logger)
+log = logging.getLogger(__name__)
 
 
 class AllInOneUsedCMD(object):
@@ -54,28 +55,28 @@ class AllInOneUsedCMD(object):
 
     @staticmethod
     def excute_cmd(cmd, *args):
-        logger.info('Execute CMD: %s' % cmd)
+        log.info('Execute CMD: %s' % cmd)
         cmd_list = []
         cmd_list.append(cmd)
         if args is not None:
             cmd_list.extend(args)
         command = ' '.join(cmd_list)
-        logger.info('Command is : %s' % command)
+        log.info('Command is : %s' % command)
         try:
             result = subprocess.call(command.split(' '))
             if result == 0:
-                logger.info('SUCCESS to execute command: %s' %  command)
+                log.info('SUCCESS to execute command: %s' %  command)
                 return True
             else:
-                logger.info('FAIL to to execute command: %s' %  command)
+                log.info('FAIL to to execute command: %s' %  command)
                 return False
         except:
-            logger.error('Exception occur when execute command: %s, Exception: %s' % (command, traceback.format_exc()))
+            log.error('Exception occur when execute command: %s, Exception: %s' % (command, traceback.format_exc()))
             return False
 
     @staticmethod
     def cp_to(source, str_destiny):
-        AllInOneUsedCMD.excute_cmd('cp', source, str_destiny)
+        return AllInOneUsedCMD.excute_cmd('cp', source, str_destiny)
 
     @staticmethod
     def mkdir(dir):
@@ -130,7 +131,7 @@ def get_files(specified_path, filters):
                     files_path.append((absolute_path, relative_path))
                 else:
                     continue
-    logger.info('Config file is: %s' % files_path)
+    log.info('Get files by filter %s is: %s' % (filters, files_path))
     return files_path
 
 def get_openstack_installed_path():
@@ -144,13 +145,13 @@ def get_openstack_installed_path():
 
 def print_log(log_contents, log_level):
     if log_level == logging.WARNING:
-        logger.warning(log_contents)
+        module_logger.warning(log_contents)
         print(log_contents)
     elif log_level == logging.ERROR:
-        logger.error(log_contents)
+        module_logger.error(log_contents)
         print(log_contents)
     else:
-        logger.info(log_contents)
+        module_logger.info(log_contents)
         print(log_contents)
 
 if __name__ == '__main__':

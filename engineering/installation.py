@@ -82,7 +82,7 @@ class CascadingDeploy(object):
         :return:
         """
         if  patch_on_off== False:
-            utils.print_log('Config for %s is False, no need to install.' % patch_name, logging.INFO)
+            logger.info('Config for %s is False, no need to install.' % patch_name)
             return False
         elif patch_on_off == True:
             absolute_path_of_patch = os.path.join(utils.get_hybrid_cloud_badam_parent_path(), PathTriCircle.PATCH_TO_PATH[patch_name])
