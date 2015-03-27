@@ -38,7 +38,7 @@ def main():
         logger.error(err_info)
 
 
-    logger.info('End to config All-in-one')
+    logger.info('End to do deploy..')
 
 if __name__ == '__main__':
     main()

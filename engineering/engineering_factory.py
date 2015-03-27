@@ -54,27 +54,33 @@ class EnginneringFactory(object):
         return self
 
     def execute(self):
-        big_sep = '**********************************'
-        logger.info(big_sep)
+        big_sep = '*********************************************************'
         logger.info('')
-        logger.info('**** Start to deploy for - %s - ****' % self.factory_name)
-
+        logger.info(big_sep)
+        logger.info('**** Start to deploy for >>>> %s <<<< ****' % self.factory_name)
+        logger.info(big_sep)
         execute_result = True
-        sep = '*****************'
-        logger.info(sep)
+        sep = '****************************'
+
         logger.info(sep)
         validate_result = self.validator.validate()
         logger.info(sep)
+
+        logger.info(sep)
         install_result = self.installer.install()
+        logger.info(sep)
+
         logger.info(sep)
         config_result = self.configurator.config()
         logger.info(sep)
-        check_result = self.checker.check()
+
         logger.info(sep)
+        check_result = self.checker.check()
         logger.info(sep)
 
         logger.info(big_sep)
-        logger.info('**** SUCCESS to deploy for - %s - ****' % self.factory_name)
+        logger.info('**** SUCCESS to deploy for >>>> %s <<<< ****' % self.factory_name)
+        logger.info(big_sep)
 
 class HostnameConfigurator(ConfiguratorBase):
 
@@ -389,11 +395,14 @@ class PatchInstaller(InstallerBase):
             if not patch_files:
                 logger.error('No files in %s' % self.patch_path)
             for absolute_path, relative_path in patch_files:
-
                 # installed_path is full install path,
                 # for example: /usr/lib/python2.7/dist-packages/nova/conductor/manager.py
                 openstack_installed_file = os.path.join(self.openstack_install_path, relative_path)
                 self.bak_patched_file(openstack_installed_file, relative_path)
+
+                copy_dir = os.path.dirname(openstack_installed_file)
+                if not os.path.isdir(copy_dir):
+                    AllInOneUsedCMD.mkdir(copy_dir)
 
                 cp_result = AllInOneUsedCMD.cp_to(absolute_path, openstack_installed_file)
                 if cp_result:
@@ -444,6 +453,7 @@ class PatchConfigurator(ConfiguratorBase):
             ConfigReplacement.ML2_LOCAL_IP : config.CONF.sysconfig.ml2_local_ip
         }
         self.exclude_replacement = ['project_id']
+        self.bak_openstack_path = config.CONF.sysconfig.openstack_bak_path
 
     def _get_all_config_files(self):
         """
@@ -460,10 +470,11 @@ class PatchConfigurator(ConfiguratorBase):
             config_files = self._get_all_config_files()
             if not config_files:
                 logger.info('There is no config file in %s ' % self.absolute_path_of_patch)
-                return
+                return 'No config file, no need to config.'
             for absolute_path, relative_path in config_files:
                 user_config = ConfigCommon(absolute_path)
                 openstack_config_file = os.path.join(os.path.sep, relative_path)
+                self.bak_cfg_file(openstack_config_file, relative_path)
                 sys_config = ConfigCommon(openstack_config_file)
                 default_options = user_config.get_options_dict_of_default()
                 for key, value in default_options.items():
@@ -475,7 +486,7 @@ class PatchConfigurator(ConfiguratorBase):
                     section_options = user_config.get_options_dict_of_section(section)
                     for key, value in section_options.items():
                         value = self.replace_value_for_sysconfig(key, value)
-                        sys_config.set_default(key, value)
+                        sys_config.set_option(section, key, value)
 
                 sys_config.write_commit()
             result = 'SUCCESS'
@@ -505,3 +516,29 @@ class PatchConfigurator(ConfiguratorBase):
             logger.error('Exception occur when replace value for key: %s, value: %s, Exception is: %s' %
                          (key, value, traceback.format_exc()))
         return value
+
+    def bak_cfg_file(self, bak_file_path, relative_path):
+        """
+
+        :param patch_file:  one file of patch's source code files,
+            for example: /root/tricircle-master/juno-patches/nova/nova_scheduling_patch/nova/conductor/manager.py
+        :param relative_path:
+            for example: nova/conductor/manager.py
+        :return:
+        """
+        logger.info('Start bak cfg file, bak_file_path:%s, relative_path:%s' % (bak_file_path, relative_path))
+        # relative_path is relative to this path(self.patch_path),
+        # for example: if self.patch_path = "/root/tricircle-master/juno-patches/nova/nova_scheduling_patch/"
+        # then relative_path of manager.py is "/nova/nova_scheduling_patch/nova/conductor/manager.py"
+        if not os.path.isdir(self.bak_openstack_path):
+            AllInOneUsedCMD.mkdir(self.bak_openstack_path)
+        bak_dir = os.path.join(self.bak_openstack_path, os.path.dirname(relative_path))
+        if not os.path.isdir(bak_dir):
+            AllInOneUsedCMD.mkdir(bak_dir)
+
+        if os.path.isfile(bak_file_path):
+            AllInOneUsedCMD.cp_to(bak_file_path, bak_dir)
+        else:
+            info = 'file: <%s> is a new file, no need to bak.' % bak_file_path
+            logger.info(info)
+        logger.info('Success to bak cfg file, bak cfg file from %s to %s' % (bak_file_path, bak_dir))

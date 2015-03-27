@@ -140,7 +140,7 @@ def get_openstack_installed_path():
         return None
     else:
         openstack_installed_path = paths[0]
-        logger.info('openstack_installed_path: %s' % openstack_installed_path)
+        module_logger.info('openstack_installed_path: %s' % openstack_installed_path)
         return openstack_installed_path
 
 def print_log(log_contents, log_level):

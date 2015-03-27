@@ -9,7 +9,7 @@ class OperationType(object):
 class EndpointType(object):
     COMPUTE = 'compute'
     VOLUME = 'volume'
-    VOLUME2 = 'volume'
+    VOLUME2 = 'volumev2'
     IMAGE = 'image'
     NETWORK = 'network'
     ORCHESTRATION = 'orchestration'

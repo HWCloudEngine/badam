@@ -95,7 +95,8 @@ cascaded_node_plugins_opts = [
                 default=False),
     cfg.BoolOpt('neutron_timestamp_cascaded_patch',
                 default=True),
-    cfg.BoolOpt('cinder_timestamp_query_patch', default=True)
+    cfg.BoolOpt('cinder_timestamp_query_patch', default=True),
+    cfg.StrOpt('aggregate_name', default=None)
 ]
 
 proxy_node_plugins_group = cfg.OptGroup(name='proxy_node_plugins',

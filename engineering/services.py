@@ -3,6 +3,10 @@ __author__ = 'nash.xiejun'
 import os
 import logging
 import traceback
+import sys
+from utils import get_hybrid_cloud_badam_path
+
+sys.path.append(get_hybrid_cloud_badam_path())
 
 from keystoneclient.v2_0 import client as keystone_client
 from keystoneclient.v2_0.endpoints import Endpoint
@@ -15,14 +19,15 @@ logger_name = __name__
 logger_module = logging.getLogger(__name__)
 logger = ELog(logger_module)
 
-class RefServices(object):
 
+class RefServices(object):
     def __init__(self):
         self.tenant = os.environ['OS_TENANT_NAME']
         self.user = os.environ['OS_USERNAME']
         self.pwd = os.environ['OS_PASSWORD']
         self.url = os.environ['OS_AUTH_URL']
-        self.keystone = keystone_client.Client(username=self.user, password=self.pwd, tenant_name=self.tenant, auth_url=self.url)
+        self.keystone = keystone_client.Client(username=self.user, password=self.pwd,
+                                               tenant_name=self.tenant, auth_url=self.url)
         credentials = self.get_nova_credentials_v2()
         self.nova = nova_client.Client(**credentials)
 
@@ -30,19 +35,19 @@ class RefServices(object):
         print(self.nova.servers.list())
 
     def nova_aggregate_create(self, name, availability_zone):
-        result =  False
+        result = None
 
         try:
-            aggregate_result = self.nova.aggregates.create( name, availability_zone)
+            aggregate_result = self.nova.aggregates.create(name, availability_zone)
 
             print_log('created Aggregate result is : %s ' % aggregate_result, logging.INFO)
 
             if aggregate_result.name == name:
-                result = True
+                result = aggregate_result
         except:
             print_log('Exception when create AG for %s, Exception: %s' % (name, traceback.format_exc()), logging.ERROR)
 
-        print result
+        return result
 
     def nova_aggregate_add_host(self, aggregate, host):
         result = False
@@ -57,7 +62,25 @@ class RefServices(object):
 
         return result
 
+    def nova_aggregate_exist(self, name, availability_zone):
+        result = False
+        try:
+            aggregate = self.nova.aggregates.get(name)
+            if aggregate.availability_zone == availability_zone:
+                result = True
+        except nova_client.exceptions.NotFound:
+            return result
+        except:
+            logger.error('Exception when exec nova_aggregate_exist, Exception: %s' % traceback.format_exc())
+            result = True
+
+        return result
+
     def get_nova_credentials_v2(self):
+        """
+        d = {'version': '2', 'username' : os.environ['OS_USERNAME'], 'api_key' : os.environ['OS_PASSWORD'], 'auth_url' : os.environ['OS_AUTH_URL'], 'project_id' : os.environ['OS_TENANT_NAME']}
+        :return:
+        """
         d = {}
         d['version'] = '2'
         d['username'] = os.environ['OS_USERNAME']
@@ -113,10 +136,10 @@ class RefServices(object):
         return service_id
 
     def create_endpoint(self, region, service_id, publicurl, adminurl=None,
-               internalurl=None):
+                        internalurl=None):
         result = False
         create_result = self.keystone.endpoints.create(region, service_id, publicurl, adminurl=None, internalurl=None)
-        if  isinstance(create_result, Endpoint):
+        if isinstance(create_result, Endpoint):
             result = True
 
         return result
@@ -128,17 +151,49 @@ class RefServices(object):
         try:
             service_id = self.get_service_id(service_type)
 
+            if self.endpoint_exist(service_id, region):
+                logger.info('Endpoint for service<%s> region <%s> is exist, no need to create again.' %
+                            (service_type, region))
+                return
+
             if service_id is None:
                 raise ValueError('Service id of type <%s> is None.' % service_type)
 
             create_result = self.create_endpoint(region, service_id, public_url, admin_url, internal_url)
             if create_result is True:
-                print_log('SUCCESS to create endpoint for <%s>.' % service_type, logging.INFO)
+                logger.info('SUCCESS to create endpoint for type <%s> region: <%s>' % (service_type, region))
             else:
-                print_log('FAILED to create endpoint for <%s>.' % service_type, logging.ERROR)
+                logger.info('FAILED to create endpoint for type <%s> region: <%s>' % (service_type, region))
         except:
-            err_info = 'Exception occur when create endpoint for %s, EXCEPTION %s' % (service_type, traceback.format_exc())
-            print_log(err_info, logging.ERROR)
+            err_info = 'Exception occur when create endpoint for type<%s> region <%s>, EXCEPTION %s' % \
+                       (service_type, region, traceback.format_exc())
+            logger.info(err_info)
+
+    def endpoint_exist(self, service_id, region):
+        result = False
+        endpoints = self.keystone.endpoints.list()
+        for endpoint in endpoints:
+            if endpoint.service_id == service_id and endpoint.region == region:
+                result = True
+                break
+            else:
+                continue
+        return result
+
+    def del_endpoint(self, regions):
+        """
+
+        :param regions: [], list of regions
+        :return:
+        """
+        result = False
+        endpoints = self.keystone.endpoints.list()
+        for endpoint in endpoints:
+            if endpoint.region in regions:
+                self.keystone.endpoints.delete(endpoint.id)
+            else:
+                continue
+        return result
 
     def create_endpoint_for_nova(self, region, ip):
         self.create_endpoint_for_service(EndpointType.COMPUTE, region, EndpointURL.COMPUTE % ip)
@@ -160,7 +215,7 @@ class RefServices(object):
         self.create_endpoint_for_service(EndpointType.ORCHESTRATION, region, EndpointURL.ORCHESTRATION % ip)
 
     def create_endpoint_for_ceilometer(self, region, ip):
-        self.create_endpoint_for_service(EndpointType.ORCHESTRATION, region, EndpointURL.METERING % ip)
+        self.create_endpoint_for_service(EndpointType.METERING, region, EndpointURL.METERING % ip)
 
     def create_endpoints(self, region, ip):
         self.create_endpoint_for_nova(region, ip)
@@ -171,11 +226,14 @@ class RefServices(object):
         self.create_endpoint_for_ceilometer(region, ip)
         self.create_endpoint_for_ec2(region, ip)
 
+
 if __name__ == '__main__':
     print('Start Create Endpoint...')
+
     region = 'sz-az-31'
     ip = '162.3.110.83'
     services = RefServices()
-    services.create_endpoints(region, ip)
-
-
+    # services.del_endpoint(['sz_az_01', 'sz_az_02'])
+    # services.create_endpoints(region, ip)
+    services.nova_aggregate_create('AG-AZ-01', 'wla-cascading-host01')
+    services.nova_aggregate_exist('AG-AZ-01', 'AZ-01')

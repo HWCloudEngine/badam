@@ -17,7 +17,7 @@ class CascadingDeploy(object):
 
     def deploy_cascading_modules(self):
         seps = '##################'
-        seps_short = '====='
+        seps_short = '============='
         logger.info('%s Start to deploy cascading modules %s' % (seps, seps))
         logger.info('')
 
@@ -29,16 +29,24 @@ class CascadingDeploy(object):
             self.deploy_neutron_cascading_big2layer_patch()
             self.deploy_neutron_cascading_l3_patch_patch()
             logger.info('%s SUCCESS to deploy CASCADING NODE %s' % (seps_short, seps_short))
+        else:
+            logger.info('  ##')
+            logger.info('####cascading node config on-off is off, do not cfg.')
+            logger.info('  ##')
 
         if config.CONF.node_cfg.cascaded_node is True:
             logger.info('')
             logger.info('%s Start to deploy CASCADED NODE %s' % (seps_short, seps_short))
-            self.creat_ag_az_for_cascaded_node()
+            self.create_ag_az_for_cascaded_node()
             self.deploy_neutron_cascaded_big2layer_patch()
             self.deploy_neutron_cascaded_l3_patch()
             self.deploy_neutron_timestamp_cascaded_patch()
             self.deploy_cinder_cascaded_cinder_timestamp_query_patch()
             logger.info('%s SUCCESS to deploy CASCADED NODE %s' % (seps_short, seps_short))
+        else:
+            logger.info('  ##')
+            logger.info('####cascaded node config on-off is off, do not cfg.')
+            logger.info('  ##')
 
         if config.CONF.node_cfg.proxy_node is True:
             logger.info('')
@@ -48,6 +56,10 @@ class CascadingDeploy(object):
             self.deploy_neutron_l2_proxy()
             self.deploy_neutron_l3_proxy()
             logger.info('%s SUCCESS to deploy PROXY NODE %s' % (seps_short, seps_short))
+        else:
+            logger.info('  ##')
+            logger.info('####proxy node config on-off is off, do not cfg.')
+            logger.info('  ##')
 
         logger.info('')
         logger.info('%s Success to deploy cascading modules %s' % (seps, seps))
@@ -59,6 +71,7 @@ class CascadingDeploy(object):
             self._create_endpoints(region, ip)
 
     def _create_endpoints(self, region, ip):
+        logger.info('@@@@ Start to create endpoints for region <%s> ip <%s> @@@@' % (region, ip))
         reference_service = RefServices()
         reference_service.create_endpoint_for_nova(region, ip)
         reference_service.create_endpoint_for_cinder(region, ip)
@@ -67,10 +80,24 @@ class CascadingDeploy(object):
         reference_service.create_endpoint_for_heat(region, ip)
         reference_service.create_endpoint_for_ceilometer(region, ip)
         reference_service.create_endpoint_for_ec2(region, ip)
+        logger.info('@@@@ End to create endpoints for region <%s> ip <%s> @@@@' % (region, ip))
 
-    def creat_ag_az_for_cascaded_node(self):
+    def create_ag_az_for_cascaded_node(self):
         reference_service = RefServices()
-        pass
+        name_aggregate = config.CONF.cascaded_node_plugins.aggregate_name
+        az = config.CONF.node_cfg.availability_zone
+        host = config.CONF.sysconfig.hostname
+        logger.info('@@@@ Start to create aggregate for aggregate <%s> availability_zone <%s> @@@@' %
+                    (name_aggregate, az))
+
+        if reference_service.nova_aggregate_exist(name_aggregate, az):
+            logger.info('aggregate<%s> availability_zone<%s> is exist, no need to create.')
+        else:
+            aggregate_obj = reference_service.nova_aggregate_create(name_aggregate, az)
+            reference_service.nova_aggregate_add_host(aggregate_obj.id, host)
+
+        logger.info('@@@@ End to create aggregate for aggregate <%s> availability_zone <%s> @@@@' %
+                    (name_aggregate, az))
 
     def deploy_patch(self, patch_on_off, patch_name, install_file_filter, config_file_filter):
         """
@@ -82,7 +109,9 @@ class CascadingDeploy(object):
         :return:
         """
         if  patch_on_off== False:
-            logger.info('Config for %s is False, no need to install.' % patch_name)
+            logger.info('*********************************************************')
+            logger.info('**** Config for %s is False, no need to install. ****' % patch_name)
+            logger.info('*********************************************************')
             return False
         elif patch_on_off == True:
             absolute_path_of_patch = os.path.join(utils.get_hybrid_cloud_badam_parent_path(), PathTriCircle.PATCH_TO_PATH[patch_name])
