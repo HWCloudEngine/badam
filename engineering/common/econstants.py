@@ -4,7 +4,8 @@ import os
 class OperationType(object):
     CFG_ALL_IN_ONE = 'cfg-all-in-one'
     CFG_HOST_NAME = 'cfg-hostname'
-    DEPLOY_HYBRID_CLOUD = 'deploy-cascade-openstack'
+    DEPLOY_CASCADING = 'deploy-cascade-openstack'
+    DEPLOY_HYBRID_CLOUD = 'deploy-hybrid-cloud'
 
 class EndpointType(object):
     COMPUTE = 'compute'
@@ -142,6 +143,31 @@ class PathTriCircle(object):
         L2_PROXY : PATH_PROXY_NEUTRON_L2,
         L3_PROXY : PATH_PROXY_NEUTRON_L3
     }
+
+class PathHybridCloud(object):
+    HYBRID_CLOUD_PATCHES = 'hybrid_cloud_patches'
+    THIRD_LIB = '3rd_lib'
+    PYTHON = 'python'
+    JAVA = 'java'
+    OPENSTACK_DASHBOARD = 'openstack_dashboard'
+    WSGI = 'wsgi'
+    ROOT = os.path.sep
+
+    #/usr/share/openstack-dashboard/openstack_dashboard/
+    # hybrid_cloud_patches/3rd_lib/java
+    PATH_THIRD_LIB_JAVA = os.path.join(HYBRID_CLOUD_PATCHES, THIRD_LIB, JAVA)
+    # hybrid_cloud_patches/3rd_lib/python
+    PATH_THIRD_LIB_PYTHON = os.path.join(HYBRID_CLOUD_PATCHES, THIRD_LIB, PYTHON)
+    # hybrid_cloud_patches/java
+    PATH_PATCHES_JAVA = os.path.join(HYBRID_CLOUD_PATCHES, JAVA)
+    # hybrid_cloud_patches/python
+    PATH_PATCHES_PYTHON = os.path.join(HYBRID_CLOUD_PATCHES, PYTHON)
+
+    # hybrid_cloud_patches/wsgi
+    PATH_PATCHES_OPENSTACK_DASHBOARD = os.path.join(HYBRID_CLOUD_PATCHES, WSGI)
+
+    # /usr/share/openstack-dashboard/
+    PATH_INSTALL_PATCH_OPENSTACK_DASHBOARD = ''.join([ROOT, os.path.join('usr', 'share', 'openstack-dashboard')])
 
 class PathTricircleConfigFile(object):
     PROXY_CINDER = os.path.join(PathTriCircle.PATH_PROXY_CINDER, PathConfigFile.CINDER)

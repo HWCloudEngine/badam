@@ -2,11 +2,12 @@ __author__ = 'nash.xiejun'
 
 import logging
 import os
+import traceback
 
 from common import config
 from services import RefServices
 from engineering_factory import EnginneringFactory, PatchInstaller, PatchConfigurator
-from common.econstants import PathTriCircle
+from common.econstants import PathTriCircle, PathHybridCloud
 import utils
 from utils import ELog
 
@@ -191,3 +192,52 @@ class CascadingDeploy(object):
         config_filter = ['.conf', '.ini']
         self.deploy_patch(config.CONF.proxy_node_plugins.neutron_l3_proxy,
                           PathTriCircle.L3_PROXY, install_filter, config_filter)
+
+class HybridDeploy(object):
+
+    def deploy_hybrid_cloud(self):
+        self.deploy_python_patches()
+        self.deploy_wsgi_patches()
+
+    def deploy_python_patches(self):
+        try:
+            patch_name = 'hybrid_python_patches'
+            install_file_filter = ['.py']
+            config_file_filter = ['.conf', '.filters']
+
+            absolute_path_of_patch = os.path.join(utils.get_hybrid_cloud_badam_path(), PathHybridCloud.PATH_PATCHES_PYTHON)
+            openstack_install_path = utils.get_openstack_installed_path()
+            installer = PatchInstaller(absolute_path_of_patch, openstack_install_path, install_file_filter)
+
+            configurator = PatchConfigurator(absolute_path_of_patch, config_file_filter)
+            patch_deploy_factory = EnginneringFactory(patch_name,
+                                                      installer=installer,
+                                                      configurator=configurator)
+            patch_deploy_factory.execute()
+        except:
+            err_info = 'Exception occur when deploy python patches for hybrid cloud, Exception: %s' %traceback.format_exc()
+            logger.error(err_info)
+
+    def deploy_wsgi_patches(self):
+        try:
+            patch_name = 'openstack_dashboard'
+            install_file_filter = ['.py', '.html', '.po']
+            absolute_path_of_patch = os.path.join(utils.get_hybrid_cloud_badam_path(),
+                                                  PathHybridCloud.PATH_PATCHES_OPENSTACK_DASHBOARD)
+            install_path = PathHybridCloud.PATH_INSTALL_PATCH_OPENSTACK_DASHBOARD
+            installer = PatchInstaller(absolute_path_of_patch, install_path, install_file_filter)
+            patch_deploy_factory = EnginneringFactory(patch_name,
+                                                      installer=installer)
+            patch_deploy_factory.execute()
+
+        except:
+            err_info = 'Exception occur when deploy python patches for WSGI openstack dashboard, Exception: %s' %traceback.format_exc()
+            logger.error(err_info)
+
+    def deploy_java_patches(self):
+        try:
+            absolute_3rd_java_path = os.path.join(utils.get_hybrid_cloud_badam_path(),
+                                                  PathHybridCloud.PATH_THIRD_LIB_JAVA)
+            pass
+        except:
+            pass
