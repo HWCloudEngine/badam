@@ -124,6 +124,7 @@ class AllInOneConfigurator(ConfiguratorBase):
         result = 'SUCCESS'
         try:
             # AllInOneUsedCMD.rabbitmq_changed_pwd()
+            self._config_rabbitmq_pwd()
             self._config_rc_local()
             self._config_nova_conf()
             self._config_neutron_conf()
@@ -137,6 +138,18 @@ class AllInOneConfigurator(ConfiguratorBase):
             logger.error('Exception occur when All-In-One Config. EXCEPTION: %s' % traceback.format_exc())
             result = 'FAILED'
         return result
+
+    @log_for_func_of_class(logger_name)
+    def _config_rabbitmq_pwd(self):
+        result = 'Failed'
+        try:
+            AllInOneUsedCMD.rabbitmq_changed_pwd()
+        except:
+            logger.error('Exception occur when config rabbitMQ. EXCEPTION: %s' % traceback.format_exc())
+            result = 'Failed'
+
+        return result
+
 
     @log_for_func_of_class(logger_name)
     def _config_rc_local(self):

@@ -29,7 +29,20 @@ def main():
     if operation == OperationType.CFG_HOST_NAME:
         EnginneringFactory(operation, configurator=HostnameConfigurator()).execute()
     elif operation == OperationType.CFG_ALL_IN_ONE:
+
+        restart_service = '# service nova-api restart\n ' \
+                      '# service nova-cert restart\n ' \
+                      '# service nova-consoleauth restar\n' \
+                      '# service nova-scheduler restart\n' \
+                      '# service nova-conductor restart\n' \
+                      '# service nova-novncproxy restart\n' \
+                      '# service neutron-server restart\n ' \
+                      '# service openvswitch-switch restart ' \
+                      '# service neutron-plugin-openvswitch-agent restart'\
+
         EnginneringFactory(operation, configurator=AllInOneConfigurator()).execute()
+        logger.warning('Please use this commands to restart services: % s' % restart_service)
+        logger.warning('Please make sure service status is >>up<<.')
     elif operation == OperationType.DEPLOY_HYBRID_CLOUD:
         CascadingDeploy().deploy_cascading_modules()
     else:
