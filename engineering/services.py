@@ -138,7 +138,7 @@ class RefServices(object):
     def create_endpoint(self, region, service_id, publicurl, adminurl=None,
                         internalurl=None):
         result = False
-        create_result = self.keystone.endpoints.create(region, service_id, publicurl, adminurl=None, internalurl=None)
+        create_result = self.keystone.endpoints.create(region, service_id, publicurl, adminurl, internalurl)
         if isinstance(create_result, Endpoint):
             result = True
 
