@@ -20,7 +20,7 @@ detach_vol() {
 }
 
 
-[ $# -lt 4 ] && usage
+[ $# -lt 5 ] && usage
 
 vol=${1}
 dst_instance_id=${2}
@@ -30,8 +30,8 @@ s3_bucket=${5}
 echo vol is $vol
 src_instance_id=$(aws ec2 describe-volumes --volume-ids  $vol | awk -v vol=$vol '{gsub("[\",]",e)} /nstance[Ii]d/{print$2;exit}')
 
-[ -z $src_instance_id ] && { echo can\'t find volumes $vol ; exit 1; }
-
+#[ -z $src_instance_id ] && { echo can\'t find volumes $vol ; exit 1; }
+if [ $src_instance_id ];then
 src_device=$(aws ec2 describe-volumes --volume-ids $vol | awk -v vol=$vol '{gsub("[\",]",e)} /Device/{print$2;exit}')
 src_device=${src_device:-/dev/sdp}
 echo $src_device
@@ -42,7 +42,8 @@ do
 sleep 1
 vol_status=$(aws ec2 describe-volumes  --volume-ids $vol | awk -v vol=$vol '{gsub("[\",]",e)} /State/{print$2;exit}')
 done
-mount_device=$(sudo fdisk -l| awk  'sub(".*/dev/xvd", e){dev=substr($0,1,1)dev}END{$0="efghijklmnopqrst";gsub("["dev"]",FS=e);print "/dev/xvd"$1}')
+fi
+mount_device=$(sudo fdisk -l| awk  'sub(".*/dev/xvd", e){dev=substr($0,1,1)dev}END{$0="abcdefghijklmnopqrst";gsub("["dev"]",FS=e);print "/dev/xvd"$1}')
 echo mount_device  is  $mount_device
 aws ec2 attach-volume --volume-id $vol --instance-id ${dst_instance_id} --device $mount_device  >/dev/null || {
 
@@ -64,14 +65,15 @@ sleep 1
 vol_status=$(aws ec2 describe-volumes  --volume-ids $vol | awk -v vol=$vol '{gsub("[\",]",e)} /State/{print$2;exit}')
 done
 
-sudo qemu-img convert -O qcow2 $mount_device $des_loc/$des_filename && {
+sudo qemu-img convert -c -O qcow2 $mount_device /home/$des_filename && {
 # sleep 3;
 true
 } || { ret=1; echo "qemu-img" failed ; }
 
-aws s3 cp $des_loc/$des_filename s3://$s3_bucket || { ret=1;echo "upload to s3" failed ; }
-sudo rm  $des_loc/$des_filename
+aws s3 cp /home/$des_filename s3://$s3_bucket || { ret=1;echo "upload to s3" failed ; }
+sudo rm  /home/$des_filename
 detach_vol $vol dst || exit 1
+if [ $src_instance_id ];then
 vol_status=$(aws ec2 describe-volumes  --volume-ids $vol | awk -v vol=$vol '{gsub("[\",]",e)} /State/{print$2;exit}')
 while [ $vol_status != "available" ]
 do
@@ -80,7 +82,7 @@ vol_status=$(aws ec2 describe-volumes  --volume-ids $vol | awk -v vol=$vol '{gsu
 done
 
 aws ec2 attach-volume --volume-id $vol --instance-id ${src_instance_id} --device ${src_device} >/dev/null || { echo attach to src $src_instance_id failed; ret=1 ; }
-
+fi
 exit $ret
 
 
