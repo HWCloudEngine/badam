@@ -1,0 +1,17 @@
+# 1) intall ovftool
+cd 1_package
+./VMware-ovftool-3.5.2-1880279-lin.x86_64.bundle
+
+
+# 2) install dependencies
+cd ../2_package
+rpm -ivh *
+
+# 3) install pip
+cd ../3_package
+tar -xvf pip-1.3.1.tar.gz
+python setup.py install
+
+# 4) install pyvlcoud
+cd ../4_package
+pip install -r requirements.txt
