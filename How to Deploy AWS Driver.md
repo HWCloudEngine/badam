@@ -251,6 +251,19 @@ Step 4: Configure Drivers on Cascading Node AZ31 *(todo: wangliuan, cinder confi
     cascaded_node_id = i-test
     base_linux_image = ami-68d8e93a
     ```
+    
+    4) Add section `[vtepdriver]` as follow:
+    
+    ```config
+    [provider_opts]
+    provider_api_network_id = f0278e5d-1940-459e-8a71-c0beb94594fc
+    provider_api_network_name = subnet-11111111
+    provider_tunnel_network_id = f0278e5d-1940-459e-8a71-c0beb94594fc
+    provider_tunnel_network_name = subnet-11111111
+    use_for_dr = False
+    ```
+    The provider_api_network_id and provider_tunnel_network_id is two prepared cascaded network id, provider_api_network_name and provider_tunnel_network_name is two prepared aws subnet id, and if your driver is used for dieasater recovery or not.
+    
 2. Configre cinder driver 
 
 Step 5: Some optimizing configration
