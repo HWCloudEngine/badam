@@ -262,7 +262,7 @@ Step 4: Configure Drivers on Cascading Node AZ31 *(todo: wangliuan, cinder confi
     provider_tunnel_network_name = subnet-11111111
     use_for_dr = False
     ```
-    The provider_api_network_id and provider_tunnel_network_id is two prepared cascaded network id, provider_api_network_name and provider_tunnel_network_name is two prepared aws subnet id, and if your driver is used for dieasater recovery or not.
+    The provider_api_network_id and provider_tunnel_network_id is two prepared cascaded network id, provider_api_network_name and provider_tunnel_network_name is two prepared aws subnet id, and if your driver is used for disaster recovery or not.
     
 2. Configre cinder driver 
 
