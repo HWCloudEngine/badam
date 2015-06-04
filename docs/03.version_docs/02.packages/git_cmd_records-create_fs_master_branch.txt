@@ -1,0 +1,68 @@
+ nova
+ 
+ git branch 2014.2_merge_5.1 2014.2
+ >>>>merge nova code of FS5.1,
+ **then tag it with 'fs_ini' by this command:
+ git tag -a fs_ini -m 'Tag as fs ini.'
+ **get diff files by following command:
+ git archive -o nova_fs5.1_.patch.zip  fs_ini $(git diff --name-only 2014.2 fs_ini)
+ 
+ git branch 2014.2_merge_banana 2014.2014
+  >>>>merge nova code of banana(zhangshen merged)
+  **then tag it with 'banana.1' by this command:
+  git tag -a banana.1 -m 'Tag as banana.1.'
+   **get diff files by following command:
+ git archive -o nova_banana.1_.patch.zip  banana.1 $(git diff --name-only 2014.2 banana.1)
+ 
+ ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+ 步骤1：
+ 基于2014.2拉出hybrid_fs_master分支
+ git branch hybrid_fs_master 2014.2
+ git checkout hybrid_fs_master
+ 将本地hybrid_fs_master分支推送到远程仓库
+ git push origin hybrid_fs_master
+ 
+ 步骤2：
+ merge FS 5.1中的代码到hybrid_fs_master分支
+ >> 合并FS 5.1代码
+ 提交代码到hybrid_fs_master分支
+ git push origin hybrid_fs_master:hybrid_fs_master
+ 打上fswy标签
+ git tag -a fswy -m 'Tag as fswy.'
+ git push origin fswy
+ 
+ 步骤3：
+ merge 张森banana版本的代码到hybrid_fs_master分支
+ >> 合并banana代码
+ 提交代码到hybrid_fs_master分支
+ git push origin hybrid_fs_master:hybrid_fs_master
+ 打上banana.1标签
+ git tag -a banana_2015.4.30 -m 'Tag as banana_2015.4.30'
+ git push origin banana_2015.4.30
+ 
+
+新建python-cinderclient的分支
+git branch hybrid_fs_master 1.1.0
+git checkout hybrid_fs_master
+git push origin hybrid_fs_master
+
+步骤2，合并FS 5.1代码
+
+
+nova client
+步骤1，新建fs_master分支
+git branch hybrid_fs_master 2.20.0
+git checkout hybrid_fs_master
+git push origin hybrid_fs_master
+
+步骤2，合并FS5.1代码
+ git push origin hybrid_fs_master:hybrid_fs_master
+ 打上fswy标签
+ git tag -a fswy -m 'Tag as fswy.'
+ git push origin fswy
+
+步骤3，合并演示代码。
+
+
+
+
