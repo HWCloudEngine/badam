@@ -15,3 +15,10 @@ python setup.py install
 # 4) install pyvlcoud
 cd ../4_package
 pip install -r requirements.txt
+
+# 5) (如果ovftool不能工作，遇到语言库问题) install ovftool dependencies
+cd ../5_package
+rpm2cpio glibc-locale-2.11.3-17.54.1.x86_64.rpm | cpio -di
+cd usr/lib64/gconv/
+cp ./* /usr/lib64/gconv/
+iconvconfig
