@@ -1,0 +1,8 @@
+# add by nkapotoxin to support do some config in ovs-vm
+
+[Filters]
+# nova vmware vmops vconfig
+vconfig: CommandFilter, vconfig, root
+
+# nova vmware vmops ifconfig
+ifconfig: CommandFilter, ifconfig, root
