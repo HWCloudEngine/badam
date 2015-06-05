@@ -1,9 +1,4 @@
-./PyYAML-3.10.tar.gz
 ./iptools-0.6.1.tar.gz
-./requests-2.4.3.tar.gz
 ./tabulate-0.7.3.tar.gz
-./wsgiref-0.1.2.zip
 ./xmltodict-0.9.0.tar.gz
-./lxml-3.4.1.tar.gz
-./netaddr-0.7.13.tar.gz
 ./pyvcloud-10.tar.gz

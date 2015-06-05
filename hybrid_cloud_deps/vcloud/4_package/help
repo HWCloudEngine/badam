@@ -1,0 +1,2 @@
+#  install pyvlcoud
+pip install -r requirements.txt
