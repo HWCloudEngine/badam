@@ -265,6 +265,44 @@ Step 4: Configure Drivers on Cascading Node AZ31 *(todo: wangliuan, cinder confi
     The provider_api_network_id and provider_tunnel_network_id is two prepared cascaded network id, provider_api_network_name and provider_tunnel_network_name is two prepared aws subnet id, and if your driver is used for disaster recovery or not.
     
 2. Configre cinder driver 
+	在cinder-volume.conf中配置以下配置项，
+
+	方法1：可以通过fs_install_tool配置
+	```config
+	[EC2]//配置多后端时取的项的名字
+	storage_tmp_dir =     //从EC2导出卷需要的S3桶，比如hybridbucket，需要在账号的S3服务中存在该桶
+	availability_zone =    //AZ31所在AWS的zone，比如ap-southeast-1a
+	cgw_host_ip =       //网关机的IP，和nova的driver配置相同
+	region =            //AZ31所在AWS的region，比如ap-southeast-1
+	volume_backend_name = EC2   //driver的volume_backend_name
+	provider_image_conversion_dir = //导出EC2卷的目录，可以写成/tmp/ec2形式
+	volume_driver = cinder.volume.drivers.ec2.driver.AwsEc2VolumeDriver
+	cgw_certificate =    //网关机的私钥文件，和nova的driver配置相同
+	access_key_id =    //AWS账号的key
+	secret_key =       //AWS账号的velue
+	cgw_username =   //网关机的用户名，和nova一样，比如ec2-user
+	cgw_host_id =     //网关机的AWS的ID，比如i-db1e5b17
+	```
+		
+	配置完后，重启AZ31节点的cinder-api和cinder-volume服务
+		
+	方法2：也可以不用fs_install_tool方式配置多后端这种方式，可以用cps命令直接替换默认的lvm驱动	`cps  template-rams-update  --parameter  volume_driver= cinder.volume.drivers.ec2.driver.AwsEc2VolumeDriver  --service  cinder  cinder-volume`
+	 
+	然后在cinder-volume.conf的default配置项里面增加以下项：
+	
+	``` config
+	storage_tmp_dir =     //从EC2导出卷需要的S3桶，比如hybridbucket，需要在账号的S3服务中存在该桶
+	availability_zone =    //AZ31所在AWS的zone，比如ap-southeast-1a
+	cgw_host_ip =       //网关机的IP，和nova的driver配置相同
+	region =            //AZ31所在AWS的region，比如ap-southeast-1
+	provider_image_conversion_dir = //导出EC2卷的目录，可以写成/tmp/ec2形式
+	cgw_certificate =    //网关机的私钥文件，和nova的driver配置相同
+	access_key_id =    //AWS账号的key
+	secret_key =       //AWS账号的velue
+	cgw_username =   //网关机的用户名，和nova一样，比如ec2-user
+	cgw_host_id =     //网关机的AWS的ID，比如i-db1e5b17
+	```
+	配置完后，重启AZ31节点的cinder-api和cinder-volume服务
 
 Step 5: Some optimizing configration
 ------------------------------------
@@ -272,4 +310,5 @@ Step 5: Some optimizing configration
 
  - Mapping glance image `aaa-bbb-ccc-ddd` to AWS AMI `ami-eeeee`: 
  Add a tag, of which key is `hyrid_cloud_image_id` and value is `aaa-bbb-ccc-ddd`, to AWS AMI `ami-eeeee`
+
 
