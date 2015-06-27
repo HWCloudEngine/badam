@@ -1,0 +1,33 @@
+#!/bin/sh
+
+read -s -p 'Enter OS_PASSWORD=' password 
+echo
+if [ -z "$password" ]; then
+    echo "OS_PASSWORD can not be empty"
+    return
+fi
+
+#modify the env below if you need
+export OS_USERNAME=dc1_admin
+export OS_TENANT_NAME=dc_system_dc1
+export OS_REGION_NAME=az1.dc1
+export OS_AUTH_URL=https://identity.az1.dc1.domainname.com:443/identity/v2.0
+export OS_PASSWORD=$password
+export NOVA_ENDPOINT_TYPE=internalURL
+export OS_ENDPOINT_TYPE=internalURL
+export CINDER_ENDPOINT_TYPE=internalURL
+export OS_VOLUME_API_VERSION=2
+export BASE_BOND=brcps
+
+echo -e '\n=============environment values======================'
+
+#print the env
+echo 'OS_AUTH_URL'=$OS_AUTH_URL
+echo 'OS_USERNAME'=$OS_USERNAME
+echo 'OS_TENANT_NAME'=$OS_TENANT_NAME
+echo 'OS_REGION_NAME'=$OS_REGION_NAME
+echo 'NOVA_ENDPOINT_TYPE'=$NOVA_ENDPOINT_TYPE
+echo 'OS_ENDPOINT_TYPE'=$OS_ENDPOINT_TYPE
+echo 'CINDER_ENDPOINT_TYPE'=$CINDER_ENDPOINT_TYPE
+echo 'OS_VOLUME_API_VERSION'=$OS_VOLUME_API_VERSION
+echo 'BASE_BOND'=$BASE_BOND

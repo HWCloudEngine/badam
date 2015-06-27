@@ -1,0 +1,74 @@
+{
+    "nova.conf": {
+        "DEFAULT": {
+            "log_format": "nova-compute %(levelname)s [pid:%(process)d] [%(threadName)s] [%(filename)s:%(lineno)d %(funcName)s] [%(request_id)s] %(instance)s%(message)s",
+            "libvirt_snapshots_directory": "/opt/HUAWEI/image",
+            "instances_console0_log_path": "/var/log/fusionsphere/uvp/qemu",
+            "instances_ha_info_record_path": "/var/lib/nova/haInfo",
+            "instance_console_log": false,
+            "instance_vwatchdog": false,
+            "rebuild_extdata_keep": false,
+            "close_instance_memballoon":true,
+            "running_deleted_instance_notify_interval":"60",
+            "vcpu_pin_set": "",
+            "emulator_pin_bindcpu":"",
+            "reserved_host_mem_dict": "node0:0",
+            "vlan_interface": "brcps",
+            "public_interface": "brcps",
+            "default_floating_pool": "public",
+            "force_dhcp_release": "True",
+            "network_manager": "nova.network.manager.VlanManager",
+            "dhcpbridge_flagfile": "/etc/nova/nova-compute.conf",
+            "task_monitor_interval": "60",
+            "task_monitor_file": "/opt/HUAWEI/image/nova-compute_heart.ini",
+            "rpc_backend": "rabbit",
+            "rabbit_host": "rabbit_host",
+            "rabbit_password":"rabbit_host",
+            "use_cow_images": "false",
+            "network_allocate_retries": "5",
+            "pci_passthrough_whitelist": "",
+            "compute_stats_class": "nova.huawei.compute.stats.Stats",
+            "network_device_mtu": "9000",
+            "compute_resources": "vcpu,physical_network",
+            "vif_plugging_timeout": 0,
+            "vif_plugging_is_fatal": false
+        },
+        "vcloud": {
+            "vcloud_node_name":"vcloud_node_01",
+            "vcloud_host_ip":"162.3.111.147",
+            "vcloud_host_username":"vdf-user",
+            "vcloud_host_password":"Galax0088",
+            "vcloud_org":"VDF-ORG",
+            "vcloud_vdc":"vdf-vdc",
+            "vcloud_ovs_ethport":"eth2",
+            "vcloud_dvs_name":"AZ11_dataSwitch",
+            "vcloud_vm_naming_rule":"cascaded_openstack_rule",
+            "vcloud_flavor_map":" m1.tiny:1, m1.small:2, m1.medium:3, m1.large:4, m1.xlarge:5",
+            "vcloud_conversion_dir":"/opt/HUAWEI/image",
+            "vcloud_volumes_dir":"/opt/HUAWEI/image",
+            "vcloud_bridge_prefix":"qvm"
+        },
+        "vcenter": {
+            "vcenter_host_ip":"162.3.111.72",
+            "vcenter_host_username":"root",
+            "vcenter_host_password":"vmware"
+        },
+        "vmware": {
+            "maximum_objects": "4000",
+            "use_linked_clone": "False"
+        },
+        "libvirt": {
+            "libvirt_iscsi_use_ultrapath": "false",
+            "vif_driver": "nova.virt.libvirt.vif.LibvirtGenericVIFDriver",
+            "inject_key": "True",
+            "inject_partition": "1",
+            "live_migration_flag": "VIR_MIGRATE_UNDEFINE_SOURCE, VIR_MIGRATE_LIVE, VIR_MIGRATE_PERSIST_DEST, VIR_MIGRATE_PEER2PEER",
+            "block_migration_flag": "VIR_MIGRATE_UNDEFINE_SOURCE, VIR_MIGRATE_LIVE, VIR_MIGRATE_PERSIST_DEST, VIR_MIGRATE_NON_SHARED_DISK, VIR_MIGRATE_PEER2PEER",
+            "live_migration_bandwidth": "500",
+            "images_volume_group": "cpsVG",
+            "images_type": "raw",
+            "volume_clear": "zero",
+            "volume_clear_size": "0"
+        }
+    }
+}

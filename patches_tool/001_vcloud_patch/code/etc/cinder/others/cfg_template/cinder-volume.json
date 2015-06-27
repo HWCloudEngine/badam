@@ -1,0 +1,67 @@
+{
+    "cinder.conf": {
+        "DEFAULT": {
+            "allowed_direct_url_schemes": "uds, uds+https, swift, swift+https",
+            "auth_strategy": "keystone",
+            "backup_api_class": "cinder.backup.api.API",
+            "backup_driver": "cinder.backup.drivers.swift",
+            "backup_manager": "cinder.backup.manager.BackupManager",
+            "backup_name_template": "backup-%s",
+            "debug": "true",
+            "iscsi_helper": "tgtadm",
+            "log_format": "cinder-volume %(name)s [%(levelname)s] [%(threadName)s] [%(filename)s:%(lineno)d] %(message)s",
+            "max_gigabytes": "10000",
+            "quota_gigabytes": "1000",
+            "quota_snapshots": "10",
+            "quota_volumes": "10",
+            "rootwrap_config": "/etc/cinder/rootwrap.conf",
+            "snapshot_name_template": "snapshot-%s",
+            "state_path": "/etc/cinder/",
+            "storage_availability_zone": "nova",
+            "syslog_log_facility": "local1",
+            "tgt_conf": "/etc/tgt/targets.conf",
+            "use_syslog": "True",
+            "verbose": "true",
+            "volume_api_class": "cinder.volume.api.API",
+            "volume_dd_blocksize": "1M",
+            "volume_driver": "cinder.volume.drivers.vcloud.driver.VMwareVcloudVolumeDriver",
+            "volume_group": "cpsVG",
+            "volume_manager": "cinder.volume.manager.VolumeManager",
+            "volume_name_template": "volume-%s",
+            "volume_usage_audit_period": "month",
+            "volumes_dir": "/etc/cinder/volumes",
+            "glance_api_version":"1",
+            "image_conversion_dir": "/opt/HUAWEI/image",
+            "use_ultrapath_for_image_xfer": "false",
+            "service_down_time":"120",
+            "max_pool_size":"10",
+            "max_overflow":"50",
+            "rpc_thread_pool_size":"128",
+            "rpc_conn_pool_size":"60",
+            "rpc_response_timeout":"120",
+            "nova_api_insecure":"true"
+        },
+        "keystone_authtoken": {
+            "insecure": "true",
+            "revocation_cache_time": "86400",
+            "auth_admin_prefix": "identity-admin"
+        },
+        "database":{
+            "idle_timeout":"10"
+        },
+        "vcloud": {
+            "vcloud_node_name":"vcloud_node_01",
+            "vcloud_host_ip":"162.3.111.147",
+            "vcloud_host_username":"vdf-user",
+            "vcloud_host_password":"Galax0088",
+            "vcloud_org":"VDF-ORG",
+            "vcloud_vdc":"vdf-vdc",
+            "vcloud_ovs_ethport":"eth2",
+            "vcloud_dvs_name":"AZ11_dataSwitch",
+            "vcloud_vm_naming_rule":"cascaded_openstack_rule",
+            "vcloud_flavor_map":" m1.tiny:1, m1.small:2, m1.medium:3, m1.large:4, m1.xlarge:5",
+            "vcloud_conversion_dir":"/opt/HUAWEI/image"
+        }
+
+    }
+}
