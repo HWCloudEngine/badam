@@ -1,14 +1,14 @@
-文件目录结构说明:
+File Directory Structure Description:
 patches_tool
 ├─001_vcloud_patch
-│  ├─code                   存放混合云各模块代码补丁文件
+│  ├─code                  Hybrid cloud modules code patch file
 │  │  ├─cinder
 │  │  │
 │  │  ├─etc
 │  │  │
 │  │  └─nova
 │  │
-│  └─vcloud_deps           存放用来对接vcloud的依赖包文件
+│  └─vcloud_deps           vcloud dependencies file
 │      ├─vcloud
 │      │  ├─1_package
 │      │  ├─2_package
@@ -19,8 +19,10 @@ patches_tool
 └─install_tool
 
 
-使用方法：
-1、先在待对接vcloud页面上进行配置，再修改vcloud_config.json文件内容
-2、修改patch_file.py文件中域名为待对接vcloud节点的实际域名，例如
-  os.environ.setdefault("CPS_SERVER", "https://cps.az11.shenzhen--vcloud.huawei.com:443")
-3、执行脚本打补丁 python patch_file.py
+Instructions:
+1. Copy these files into vcloud cascaed node to any directory, eg: /home.
+   cd patches_tool/001_vcloud_patch/
+2. Modify vcloud_config.json
+3. Modify this file patch_file.py, The domain name is the actual domain name of vcloud node, eg
+   os.environ.setdefault("CPS_SERVER", "https://cps.az11.shenzhen--vcloud.huawei.com:443")
+4. python patch_file.py
