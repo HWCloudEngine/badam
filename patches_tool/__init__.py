@@ -1,1 +1,2 @@
-__author__ = 'luqitao'
+import sys
+sys.path.append('/usr/bin/install_tool')

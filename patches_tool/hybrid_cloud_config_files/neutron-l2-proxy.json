@@ -1,0 +1,34 @@
+{
+    "neutron_l2_proxy.conf": {
+        "DEFAULT": {
+            "debug" : "True",
+            "verbose" : "True",
+            "log_format": "neutron-l2-proxy %(levelname)s [pid:%(process)d] [%(threadName)s] [%(filename)s:%(lineno)d %(funcName)s] %(message)s",
+            "use_syslog" : "True",
+            "syslog_log_facility" : "local1",
+            "rabbit_password" : "N8296FGj0gDK1OA8djBQ50u/7CZvJ+RfE2qNhiGICE8=",
+            "rabbit_userid": "rabbit",
+            "kombu_heartbeat" : "60"
+        },
+        "agent": {
+            "report_interval" : "50"
+        }
+    },
+    "l2_proxy.ini": {
+        "ovs": {
+            "integration_bridge": "br-int",
+            "tunnel_bridge": "br-tun"
+        },
+        "agent": {
+            "veth_mtu": "1600",
+            "pagination_limit": "-1",
+            "port_timestamp_enabled": "False",
+            "remote_port_enabled": "False",
+            "query_ports_mode": "cascaded_neutron",
+            "proxy_sock_path": "/var/lib/neutron/l2proxysock"
+        },
+        "qos": {
+            "qos_driver": "neutron.services.qos.drivers.qos_proxy.QosProxyDriver"
+        }
+    }
+}
