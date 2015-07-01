@@ -1,0 +1,62 @@
+{
+    "cinder.conf": {
+        "DEFAULT": {
+            "allowed_direct_url_schemes": "uds, uds+https, swift, swift+https",
+            "auth_strategy": "keystone",
+            "backup_api_class": "cinder.backup.api.API",
+            "backup_driver": "cinder.backup.drivers.swift",
+            "backup_manager": "cinder.backup.manager.BackupManager",
+            "backup_name_template": "backup-%s",
+            "debug": "true",
+            "iscsi_helper": "tgtadm",
+            "log_format": "cinder-volume %(name)s [%(levelname)s] [%(threadName)s] [%(filename)s:%(lineno)d] %(message)s",
+            "max_gigabytes": "10000",
+            "quota_gigabytes": "1000",
+            "quota_snapshots": "10",
+            "quota_volumes": "10",
+            "rootwrap_config": "/etc/cinder/rootwrap.conf",
+            "snapshot_name_template": "snapshot-%s",
+            "state_path": "/etc/cinder/",
+            "storage_availability_zone": "nova",
+            "syslog_log_facility": "local1",
+            "tgt_conf": "/etc/tgt/targets.conf",
+            "use_syslog": "True",
+            "verbose": "true",
+            "volume_api_class": "cinder.volume.api.API",
+            "volume_dd_blocksize": "1M",
+            "volume_driver": "cinder.volume.drivers.ec2.driver.AwsEc2VolumeDriver",
+            "volume_group": "cpsVG",
+            "volume_manager": "cinder.volume.manager.VolumeManager",
+            "volume_name_template": "volume-%s",
+            "volume_usage_audit_period": "month",
+            "volumes_dir": "/etc/cinder/volumes",
+            "glance_api_version":"1",
+            "image_conversion_dir": "/opt/HUAWEI/image",
+            "use_ultrapath_for_image_xfer": "false",
+            "service_down_time":"120",
+            "max_pool_size":"10",
+            "max_overflow":"50",
+            "rpc_thread_pool_size":"128",
+            "rpc_conn_pool_size":"60",
+            "rpc_response_timeout":"120",
+            "storage_tmp_dir":"hybridbucket",
+            "availability_zone":"ap-southeast-1a",
+            "cgw_host_ip":"52.74.155.248",
+            "region":"ap-southeast-1",
+            "provider_image_conversion_dir":"/opt/HUAWEI/image",
+            "cgw_certificate":"/home/cgw.pem",
+            "access_key_id":"AKIAIPBTQO4PAMG5O62Q",
+            "secret_key":"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",
+            "cgw_username":"ec2-user",
+            "cgw_host_id":"i-c124700d"
+        },
+        "keystone_authtoken": {
+            "insecure": "true",
+            "revocation_cache_time": "86400",
+            "auth_admin_prefix": "identity-admin"
+        },
+        "database":{
+            "idle_timeout":"10"
+        }
+    }
+}

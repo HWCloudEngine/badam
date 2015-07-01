@@ -36,10 +36,10 @@ default_group = cfg.OptGroup(name='DEFAULT',
 default_opts = [
     cfg.DictOpt('proxy_match_host', default=None),
     cfg.DictOpt('proxy_match_region', default=None),
-    cfg.DictOpt('host_match_region', default=None),
     cfg.StrOpt('current_node', default='proxy001'),
     cfg.DictOpt('cascaded_add_route', default=None),
-    cfg.DictOpt('cascaded_add_table_external_api', default=None)
+    cfg.DictOpt('cascaded_add_table_external_api', default=None),
+    cfg.StrOpt('cascading_region', default='cascading.hybrid.huawei.com')
 ]
 
 CONF.register_group(default_group)
@@ -53,7 +53,6 @@ class ConfigCascading(object):
     def __init__(self):
         self.proxy_match_host = CONF.DEFAULT.proxy_match_host
         self.proxy_match_region = CONF.DEFAULT.proxy_match_region
-        self.host_match_region = CONF.DEFAULT.host_match_region
         self.proxies = self.proxy_match_host.keys()
         self.current_proxy = CONF.DEFAULT.current_node
 
@@ -74,15 +73,15 @@ class ConfigCascading(object):
 
             print('--------start to add role for nova proxy')
             self._add_proxy_role(host_proxy_in, role_nova_proxy)
-            self._check_service_proxy_status('nova', self._get_nova_template_name(proxy_number), 'fault')
+            # self._check_service_proxy_status('nova', self._get_nova_template_name(proxy_number), 'fault')
             print('--------end to add role for nova proxy')
             print('--------start to add role for neutron proxy')
             self._add_proxy_role(host_proxy_in, role_neutron_proxy)
-            self._check_service_proxy_status('neutron', self._get_neutron_l2_template_name(proxy_number), 'fault')
+            # self._check_service_proxy_status('neutron', self._get_neutron_l2_template_name(proxy_number), 'fault')
             print('--------end to add role for neutron proxy')
             print('--------start to add role for cinder proxy')
             self._add_proxy_role(host_proxy_in, role_cinder_proxy)
-            self._check_service_proxy_status('cinder', self._get_cinder_template_name(proxy_number), 'fault')
+            # self._check_service_proxy_status('cinder', self._get_cinder_template_name(proxy_number), 'fault')
             print('--------end to add role for cinder proxy')
             print('****  End to add role for Proxy:<<%s>>  ****' % proxy_number)
 
@@ -167,12 +166,12 @@ class ConfigCascading(object):
         """
         ref_service = RefServices()
         host_id = socket.gethostname()
-        region = self.host_match_region[host_id]
-        os_region_name = self._get_proxy_region_and_host_region_name(region)
+        region = RefCPSService.get_local_domain()
+        os_region_name = '.'.join([RefFsSystemUtils.get_az_by_domain(region), RefFsSystemUtils.get_dc_by_domain(region)])
         if not ref_service.nova_aggregate_exist(os_region_name, os_region_name):
             create_result = ref_service.nova_aggregate_create(os_region_name, os_region_name)
             if create_result is not None:
-                ref_service.nova_aggregate_add_host(os_region_name, host_id)
+                ref_service.nova_aggregate_add_host(create_result, host_id)
         print('Success to create region<%s> for host<%s>' % (os_region_name, host_id))
 
     def create_route_table_in_cascaded_node(self):
@@ -292,7 +291,7 @@ class ConfigCascading(object):
         template = '-'.join([service, proxy_name])
         self._update_template_params_for_proxy('nova', template, updated_params)
         self._commit_config()
-        self._check_service_proxy_status(service, template, 'active')
+        # self._check_service_proxy_status(service, template, 'active')
 
     def _update_template_params_for_proxy(self, service, template_name, dict_params):
         result = RefCPSService.update_template_params(service, template_name, dict_params)
@@ -331,7 +330,7 @@ class ConfigCascading(object):
         template = '-'.join([service, neutron_proxy_type, proxy_name])
         self._update_template_params_for_proxy(service, template, updated_params)
         self._commit_config()
-        self._check_service_proxy_status(service, template, 'active')
+        # self._check_service_proxy_status(service, template, 'active')
 
     def _config_cinder_proxy(self, proxy_name):
         try:
@@ -347,18 +346,18 @@ class ConfigCascading(object):
                          'cascaded_region_name': proxy_matched_host_region_name,
                          'cinder_tenant_id': cinder_tenant_id,
                          'host': proxy_matched_host_region_name,
-                         'keystone_auth_url': 'https://identity.%s:443/identity/v2.0' % proxy_matched_region,
+                         'keystone_auth_url': 'https://identity.%s:443/identity/v2.0' % self.cascading_region,
                          'storage_availability_zone': proxy_matched_host_region_name
             }
             self._update_template_params_for_proxy(service, template, updated_params)
             self._commit_config()
-            self._check_service_proxy_status(service, template, 'active')
+            #self._check_service_proxy_status(service, template, 'active')
             template_cinder_api = 'cinder-api'
             template_cinder_scheduler = 'cinder-scheduler'
             template_cinder_cinder_volume = 'cinder-scheduler'
-            self._check_service_proxy_status(service, template_cinder_api, 'active')
-            self._check_service_proxy_status(service, template_cinder_scheduler, 'active')
-            self._check_service_proxy_status(service, template_cinder_cinder_volume, 'active')
+            #self._check_service_proxy_status(service, template_cinder_api, 'active')
+            #self._check_service_proxy_status(service, template_cinder_scheduler, 'active')
+            #self._check_service_proxy_status(service, template_cinder_cinder_volume, 'active')
         except:
             print 'Exception when cinder proxy config. e: %s' % traceback.format_exc()
             log.error('e: %s' % traceback.format_exc())

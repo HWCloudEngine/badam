@@ -13,11 +13,11 @@ from novaclient import client as nova_client
 from nova.proxy import clients
 from nova.proxy import compute_context
 
-# from install_tool import cps_server, fsutils, fs_system_util
+from install_tool import cps_server, fsutils, fs_system_util
 # TODO:
-import cps_server
-import fsutils
-import fs_system_util
+# import cps_server
+# import fsutils
+# import fs_system_util
 
 logger_name = __name__
 logger_module = logging.getLogger(__name__)
