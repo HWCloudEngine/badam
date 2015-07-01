@@ -20,5 +20,11 @@ class PatchFilePath(object):
     HYBRID_CLOUD_PATCHES = 'hybrid_cloud_patches'
     AWS_CASCADED = 'aws_cascaded'
     AWS_PROXY = 'aws_proxy'
+    CASCADING = 'cascading'
+    VCLOUD_PROXY = 'vcloud_proxy'
+    VCLOUD_CASCADED = 'VCLOUD_CASCADED'
     PATCH_FOR_AWS_CASCADED = os.path.sep.join([HYBRID_CLOUD_PATCHES, AWS_CASCADED])
     PATCH_FOR_AWS_PROXY = os.path.sep.join([HYBRID_CLOUD_PATCHES, AWS_PROXY])
+    PATCH_FOR_CASCADING = os.path.sep.join([HYBRID_CLOUD_PATCHES, CASCADING])
+    PATCH_FOR_VCLOUD_CASCADED = os.path.sep.join([HYBRID_CLOUD_PATCHES, VCLOUD_CASCADED])
+    PATCH_FOR_VCLOUD_PROXY = os.path.sep.join([HYBRID_CLOUD_PATCHES, VCLOUD_PROXY])

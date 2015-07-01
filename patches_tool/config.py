@@ -39,7 +39,8 @@ default_opts = [
     cfg.StrOpt('current_node', default='proxy001'),
     cfg.DictOpt('cascaded_add_route', default=None),
     cfg.DictOpt('cascaded_add_table_external_api', default=None),
-    cfg.StrOpt('cascading_region', default='cascading.hybrid.huawei.com')
+    cfg.StrOpt('cascading_region', default='cascading.hybrid.huawei.com'),
+    cfg.StrOpt('openstack_bak_path', default='/home/openstack_bak')
 ]
 
 CONF.register_group(default_group)
@@ -139,8 +140,8 @@ class ConfigCascading(object):
 
     def config_big_l2_layer_in_proxy_node(self):
         host_list = RefCPSService.host_list()
-        self._replace_neutron_l2_proxy_json(host_list)
         self._config_big_l2_layer_in_proxy(self.current_proxy)
+        self._replace_neutron_l2_proxy_json(host_list)
 
     def config_big_l2_layer_in_cascaded_node(self):
         self._config_big_l2_layer_in_cascaded_node()
@@ -377,7 +378,7 @@ class ConfigCascading(object):
             return False
 
 if __name__ == '__main__':
-    print('Start to config....')
+    print('Start to config cascading....')
     if len(sys.argv) <= 1:
         print('Please select mode, options is: 1. cascading; 2. cascaded')
     mode = sys.argv[1]

@@ -4,9 +4,10 @@ import logging
 import traceback
 
 import utils
-from utils import CommonCMD, ELog
+from utils import CommonCMD, ELog, SSHConnection
 from config import CONF
-from constants import PatchFilePath
+from constants import PatchFilePath, CfgFilePath
+from services import RefCPSService
 
 logger = logging.getLogger(__name__)
 print_logger = ELog(logger)
@@ -17,7 +18,7 @@ class InstallerBase(object):
 
 class PatchInstaller(InstallerBase):
 
-    def __init__(self, patch_path, openstack_install_path, filters):
+    def __init__(self, patch_path, openstack_install_path, filters, host):
         """
 
         :param patch_path:
@@ -31,11 +32,12 @@ class PatchInstaller(InstallerBase):
         """
         # patch_path is /root/tricircle-master/juno-patches/nova/nova_scheduling_patch/
         self.patch_path = patch_path
+        self.host_ip = host
         # install_path is  openstack installed path'/usr/lib/python2.7/dist-packages/'
         self.openstack_install_path = openstack_install_path
         # filter is valid suffix of files, for example: ['.py']
         self.filters = filters
-        self.bak_openstack_path = CONF.sysconfig.openstack_bak_path
+        self.bak_openstack_path = CONF.DEFAULT.openstack_bak_path
 
     def get_patch_files(self, patch_path, filters):
         """
@@ -62,9 +64,10 @@ class PatchInstaller(InstallerBase):
         # relative_path is relative to this path(self.patch_path),
         # for example: if self.patch_path = "/root/tricircle-master/juno-patches/nova/nova_scheduling_patch/"
         # then relative_path of manager.py is "/nova/nova_scheduling_patch/nova/conductor/manager.py"
-        if not os.path.isdir(self.bak_openstack_path):
-            CommonCMD.mkdir(self.bak_openstack_path)
-        bak_dir = os.path.join(self.bak_openstack_path, os.path.dirname(relative_path))
+        bak_path = os.path.sep.join([self.bak_openstack_path, str(self.host_ip)])
+        if not os.path.isdir(bak_path):
+            CommonCMD.mkdir(bak_path)
+        bak_dir = os.path.join(bak_path, os.path.dirname(relative_path))
         if not os.path.isdir(bak_dir):
             CommonCMD.mkdir(bak_dir)
 
@@ -91,11 +94,10 @@ class PatchInstaller(InstallerBase):
                 if not os.path.isdir(copy_dir):
                     CommonCMD.mkdir(copy_dir)
 
-                cp_result = CommonCMD.cp_to(absolute_path, openstack_installed_file)
-                if cp_result:
-                    logger.info('Success to copy source file:%s' % absolute_path)
-                else:
-                    logger.info('Failed to copy source file:%s' % absolute_path)
+                # cp_result = CommonCMD.cp_to(absolute_path, openstack_installed_file)
+                ssh = SSHConnection(self.host_ip, 'root', 'Huawei@CLOUD8!')
+                ssh.put(absolute_path, openstack_installed_file)
+                ssh.close()
                 result = 'SUCCESS'
         except:
             logger.error('Exception occur when install patch: %s, Exception: %s' %
@@ -103,11 +105,46 @@ class PatchInstaller(InstallerBase):
         return result
 
 class PatchesTool(object):
-    def patch_for_aws_cascaded(self):
-        absolute_aws_cascaded_patch_path = os.path.sep.join([utils.get_patches_tool_path(), PatchFilePath.PATCH_FOR_AWS_CASCADED])
-        PatchInstaller(absolute_aws_cascaded_patch_path, utils.get_openstack_installed_path(), ['.py']).install()
 
-    def patch_for_aws_proxy(self):
+    def __init__(self):
+        self.proxy_match_region = CONF.DEFAULT.proxy_match_region
+
+    def patch_for_cascading_and_proxy_node(self):
+        host_list = RefCPSService.host_list()
+        for host in host_list['hosts']:
+            roles_list = host['roles']
+            proxy_host_ip = host['manageip']
+            region = self._get_region_by_roles_list(roles_list)
+            if region is not None:
+                absolute_patch_path = self._get_path_by_region(region)
+                PatchInstaller(absolute_patch_path, utils.get_openstack_installed_path(), ['.py'], proxy_host_ip).install()
+            else:
+                print('Region of ip <%s> is None, can not patch for this proxy' % proxy_host_ip)
+
+    def _get_path_by_region(self, region):
+        absolute_cascading_patch_path = os.path.sep.join([utils.get_patches_tool_path(), PatchFilePath.PATCH_FOR_CASCADING])
         absolute_aws_proxy_patch_path = os.path.sep.join([utils.get_patches_tool_path(), PatchFilePath.PATCH_FOR_AWS_PROXY])
-        PatchInstaller(absolute_aws_proxy_patch_path, utils.get_openstack_installed_path(), ['.py']).install()
+        absolute_vcloud_proxy_patch_path = os.path.sep.join([utils.get_patches_tool_path(), PatchFilePath.PATCH_FOR_VCLOUD_PROXY])
+
+        if 'aws' in region:
+            return absolute_aws_proxy_patch_path
+        elif 'vcloud' in region:
+            return absolute_vcloud_proxy_patch_path
+        else:
+            return absolute_cascading_patch_path
+
+    def _get_region_by_roles_list(self, roles_list):
+        for role in roles_list:
+            if 'compute-proxy' in role:
+                proxy_number = role.split('-')[1]
+                return self.proxy_match_region[proxy_number]
+        return
+
+if __name__ == '__main__':
+    print('Start to patch hybrid cloud patch...')
+    PatchesTool().patch_for_cascading_and_proxy_node()
+    print('Finish to patch hybrid cloud patch.')
+    print('Please restart nova proxy, neutron l2/l3 proxy, cinder proxy')
+    print('Patched backup file is in DIR - %s' % CONF.DEFAULT.openstack_bak_path)
+
 
