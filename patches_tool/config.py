@@ -5,15 +5,14 @@ sys.path.append('/usr/bin/install_tool')
 import os
 import traceback
 from oslo.config import cfg
-import utils
 from constants import FileName
-
 import logging
+import socket
 
 import log
 log.init('patches_tool')
 
-from utils import ELog, CommonCMD
+from utils import ELog, CommonCMD, SSHConnection
 from services import RefServices, RefCPSService, RefCPSServiceExtent, RefFsUtils, RefFsSystemUtils
 from constants import CfgFilePath
 
@@ -124,6 +123,14 @@ class ConfigCascading(object):
     def _get_cinder_template_name(self, proxy_name):
         return '-'.join(['cinder', proxy_name])
 
+    def config_nova_scheduler(self):
+        updated_params = {'scheduler_default_filters':'AvailabilityZoneFilter'
+        }
+        service = 'nova'
+        template = 'nova-scheduler'
+        self._update_template_params_for_proxy(service, template, updated_params)
+        self._commit_config()
+
     def config_proxy_to_connect_with_cascaded(self):
         for proxy in self.proxies:
             self._config_service_for_nova_proxy(proxy)
@@ -132,7 +139,8 @@ class ConfigCascading(object):
             self._config_cinder_proxy(proxy)
 
     def config_big_l2_layer_in_proxy_node(self):
-        self._replace_neutron_l2_proxy_json()
+        host_list = RefCPSService.host_list()
+        self._replace_neutron_l2_proxy_json(host_list)
         self._config_big_l2_layer_in_proxy(self.current_proxy)
 
     def config_big_l2_layer_in_cascaded_node(self):
@@ -158,13 +166,14 @@ class ConfigCascading(object):
         :return:
         """
         ref_service = RefServices()
-        host_id = CommonCMD.excute_cmd('hostname')
+        host_id = socket.gethostname()
         region = self.host_match_region[host_id]
         os_region_name = self._get_proxy_region_and_host_region_name(region)
-        ref_service.nova_aggregate_create(os_region_name, os_region_name)
-
-        ref_service.nova_aggregate_add_host(os_region_name, host_id)
-
+        if not ref_service.nova_aggregate_exist(os_region_name, os_region_name):
+            create_result = ref_service.nova_aggregate_create(os_region_name, os_region_name)
+            if create_result is not None:
+                ref_service.nova_aggregate_add_host(os_region_name, host_id)
+        print('Success to create region<%s> for host<%s>' % (os_region_name, host_id))
 
     def create_route_table_in_cascaded_node(self):
         """
@@ -240,12 +249,21 @@ class ConfigCascading(object):
 
         RefCPSServiceExtent.host_template_instance_operate(service, template, action_stop)
 
-    def _replace_neutron_l2_proxy_json(self):
+    def _replace_neutron_l2_proxy_json(self, host_info):
         """
         TODO: to get host ip of proxies, and scp config file of json to these proxies.
         :return:
         """
-        CommonCMD.cp_to(CfgFilePath.NEUTRON_L2_PROXY_PATH_TEMPLATE, CfgFilePath.NEUTRON_L2_PROXY_PATH)
+
+        for proxy in self.proxies:
+            neutron_network_role = self._get_neutron_role_name(proxy)
+            for host in host_info['hosts']:
+                roles_list = host['roles']
+                if neutron_network_role in roles_list:
+                    proxy_host_ip = host['manageip']
+                    ssh = SSHConnection(proxy_host_ip, 'root', 'Huawei@CLOUD8!')
+                    ssh.put(CfgFilePath.NEUTRON_L2_PROXY_PATH_TEMPLATE, CfgFilePath.NEUTRON_L2_PROXY_PATH)
+                    ssh.close()
 
     def _get_proxy_region_and_host_region_name(self, proxy_matched_region):
         return '.'.join([RefFsSystemUtils.get_az_by_domain(proxy_matched_region),
@@ -366,12 +384,22 @@ if __name__ == '__main__':
     mode = sys.argv[1]
     config_cascading = ConfigCascading()
     if mode == 'cascading':
+        config_cascading.config_nova_scheduler()
         config_cascading.add_role_for_proxies()
         config_cascading.config_proxy_to_connect_with_cascaded()
         config_cascading.config_big_l2_layer_in_proxy_node()
 
     elif mode == 'cascaded':
+        print('****Start to config big l2 layer...')
         config_cascading.config_big_l2_layer_in_cascaded_node()
+        print('****End to config big l2 layer...')
+
+        print('****Start to create aggregate...')
         config_cascading.create_aggregate_in_cascaded_node()
+        print('****End to create aggregate...')
+
+        print('****Start to create route table...')
+        config_cascading.create_route_table_in_cascaded_node()
+        print('****End to create route table...')
 
     print('End to config')

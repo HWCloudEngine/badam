@@ -131,8 +131,10 @@ class RefServices(object):
 
             if aggregate_result.name == name:
                 result = aggregate_result
-        except:
-            print_log('Exception when create AG for %s, Exception: %s' % (name, traceback.format_exc()), logging.ERROR)
+        except Exception, e:
+            logger_module.error('Exception when create AG for %s, Exception: %s' % (name, traceback.format_exc()),
+                         logging.ERROR)
+            print(e.message)
 
         return result
 
@@ -164,13 +166,15 @@ class RefServices(object):
     def nova_aggregate_exist(self, name, availability_zone):
         result = False
         try:
-            aggregate = self.nova.aggregates.get(name)
-            if aggregate.availability_zone == availability_zone:
-                result = True
+            aggregates = self.nova.aggregates.list()
+            for aggregate in aggregates:
+                if aggregate.availability_zone == availability_zone:
+                    result = True
         except nova_client.exceptions.NotFound:
             return result
         except:
             logger.error('Exception when exec nova_aggregate_exist, Exception: %s' % traceback.format_exc())
+            print traceback.format_exc()
             result = True
 
         return result
