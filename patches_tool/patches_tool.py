@@ -2,15 +2,17 @@ __author__ = 'nash.xiejun'
 import os
 import logging
 import traceback
+import stat
 
 import utils
 from utils import CommonCMD, ELog, SSHConnection
 from config import CONF
 from constants import PatchFilePath, CfgFilePath
 from services import RefCPSService
-
-logger = logging.getLogger(__name__)
-print_logger = ELog(logger)
+import log
+log.init('patches_tool')
+logger = log
+print_logger = log
 
 class InstallerBase(object):
     def install(self):
@@ -91,16 +93,19 @@ class PatchInstaller(InstallerBase):
                 self.bak_patched_file(openstack_installed_file, relative_path)
 
                 copy_dir = os.path.dirname(openstack_installed_file)
-                if not os.path.isdir(copy_dir):
-                    CommonCMD.mkdir(copy_dir)
 
                 # cp_result = CommonCMD.cp_to(absolute_path, openstack_installed_file)
                 ssh = SSHConnection(self.host_ip, 'root', 'Huawei@CLOUD8!')
+                if not stat.S_ISDIR(ssh.get_sftp().stat(copy_dir).st_mode):
+                    print('Need to create dir.')
+                    ssh.get_sftp().mkdir(copy_dir)
                 ssh.put(absolute_path, openstack_installed_file)
                 ssh.close()
                 result = 'SUCCESS'
         except:
             logger.error('Exception occur when install patch: %s, Exception: %s' %
+                                (self.patch_path, traceback.format_exc()))
+            print('Exception occur when install patch: %s, Exception: %s' %
                                 (self.patch_path, traceback.format_exc()))
         return result
 
@@ -116,8 +121,10 @@ class PatchesTool(object):
             proxy_host_ip = host['manageip']
             region = self._get_region_by_roles_list(roles_list)
             if region is not None:
+                print('Start to patch for region - <%s>' % region)
                 absolute_patch_path = self._get_path_by_region(region)
                 PatchInstaller(absolute_patch_path, utils.get_openstack_installed_path(), ['.py'], proxy_host_ip).install()
+                print('Finish to patch for region - <%s>' % region)
             else:
                 print('Region of ip <%s> is None, can not patch for this proxy' % proxy_host_ip)
 

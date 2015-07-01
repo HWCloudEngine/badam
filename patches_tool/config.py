@@ -10,14 +10,14 @@ import logging
 import socket
 
 import log
-log.init('patches_tool')
+log.init('patches_tool_config')
 
 from utils import ELog, CommonCMD, SSHConnection
 from services import RefServices, RefCPSService, RefCPSServiceExtent, RefFsUtils, RefFsSystemUtils
 from constants import CfgFilePath
 
-module_logger = logging.getLogger(__name__)
-print_logger = ELog(module_logger)
+module_logger = log
+print_logger = log
 
 CONF = cfg.CONF
 global_opts = [

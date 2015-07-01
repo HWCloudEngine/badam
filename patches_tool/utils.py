@@ -179,6 +179,12 @@ class SSHConnection(object):
 
         self.transport.connect(username=username, password=password)
 
+    def get_sftp(self):
+        if not self.sftp_open:
+            self.sftp = paramiko.SFTPClient.from_transport(self.transport)
+            self.sftp_open = True
+        return self.sftp
+
     def _openSFTPConnection(self):
         """
         Opens an SFTP connection if not already open
