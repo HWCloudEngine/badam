@@ -150,14 +150,14 @@ class PatchesTool(object):
         return
 
     def restart_service(self):
+        cps_service = CPSServiceBusiness()
         for proxy in self.proxy_match_region.keys():
-            cps_service = CPSServiceBusiness()
             cps_service.stop_all(proxy)
             cps_service.start_all(proxy)
 
     def verify_services_status(self):
+        cps_service = CPSServiceBusiness()
         for proxy in self.proxy_match_region.keys():
-            cps_service = CPSServiceBusiness()
             cps_service.check_all_service_template_status(proxy)
 
 if __name__ == '__main__':

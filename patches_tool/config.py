@@ -13,7 +13,7 @@ import log
 log.init('patches_tool_config')
 
 from utils import ELog, CommonCMD, SSHConnection
-from services import RefServices, RefCPSService, RefCPSServiceExtent, RefFsUtils, RefFsSystemUtils
+from services import RefServices, RefCPSService, RefCPSServiceExtent, RefFsUtils, RefFsSystemUtils, CPSServiceBusiness
 from constants import CfgFilePath
 
 module_logger = log
@@ -63,6 +63,19 @@ class ConfigCascading(object):
         local_dc, local_az = RefFsUtils.get_local_dc_az()
         # cascading.hybrid
         self.cascading_os_region_name = '.'.join([local_az, local_dc])
+
+    def check_service_status(self):
+        cps_service = CPSServiceBusiness()
+        for proxy in self.proxies:
+            cps_service.check_all_service_template_status(proxy)
+
+    def restart_services(self):
+        cps_service = CPSServiceBusiness()
+        for proxy in self.proxies:
+            cps_service.stop_all(proxy)
+
+        for proxy in self.proxies:
+            cps_service.start_all(proxy)
 
     def add_role_for_proxies(self):
         for proxy_number in self.proxies:
@@ -378,9 +391,15 @@ class ConfigCascading(object):
             return False
 
 if __name__ == '__main__':
-    print('Start to config cascading....')
     if len(sys.argv) <= 1:
-        print('Please select mode, options is: 1. cascading; 2. cascaded')
+        print('Please select mode, options is: 1. cascading; 2. cascaded; 3. check; 4. restart')
+        print('Option <cascading> is use to config cascading node and proxy node. Only need to execute once in cascading node.')
+        print('Option <cascaded> is use to config cascaded node. Need to copy to each cascaded node to execute.')
+        print('Option <check> is use to check status of services in cascading and proxy node.')
+        print('Option <restart> is use to restart services in cascading and proxy node.')
+        exit(0)
+    
+    print('Start to config cascading....')
     mode = sys.argv[1]
     config_cascading = ConfigCascading()
     if mode == 'cascading':
@@ -401,5 +420,13 @@ if __name__ == '__main__':
         print('****Start to create route table...')
         config_cascading.create_route_table_in_cascaded_node()
         print('****End to create route table...')
+    elif mode == 'check':
+        print('****Start to check service status...')
+        config_cascading.check_service_status()
+        print('****End to check service status.')
+    elif mode == 'restart':
+        print('****Start to restart services...')
+        config_cascading.restart_services()
+        print('****Finish to restart services.')
 
     print('End to config')
