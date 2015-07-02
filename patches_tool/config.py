@@ -398,7 +398,6 @@ if __name__ == '__main__':
         print('Option <check> is use to check status of services in cascading and proxy node.')
         print('Option <restart> is use to restart services in cascading and proxy node.')
         exit(0)
-    
     print('Start to config cascading....')
     mode = sys.argv[1]
     config_cascading = ConfigCascading()
