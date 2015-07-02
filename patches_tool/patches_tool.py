@@ -73,6 +73,8 @@ class PatchInstaller(InstallerBase):
         if not os.path.isdir(bak_dir):
             CommonCMD.mkdir(bak_dir)
 
+        ssh = SSHConnection(self.host_ip, 'root', 'Huawei@CLOUD8!')
+
         if os.path.isfile(bak_file_path):
             CommonCMD.cp_to(bak_file_path, bak_dir)
         else:
