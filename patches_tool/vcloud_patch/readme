@@ -21,8 +21,6 @@ patches_tool
 
 Instructions:
 1. Copy these files into vcloud cascaed node to any directory, eg: /home.
-   cd patches_tool/001_vcloud_patch/
+   cd patches_tool/vcloud_patch/
 2. Modify vcloud_config.json
-3. Modify this file patch_file.py, The domain name is the actual domain name of vcloud node, eg
-   os.environ.setdefault("CPS_SERVER", "https://cps.az11.shenzhen--vcloud.huawei.com:443")
-4. python patch_file.py
+3. python patch_file.py

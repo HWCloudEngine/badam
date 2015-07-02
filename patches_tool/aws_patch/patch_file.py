@@ -11,21 +11,21 @@ from os.path import join
 from oslo.config import cfg
 
 CURRENT_PATH = os.path.dirname(os.path.abspath(__file__))
-LOG_FILE = join(CURRENT_PATH, __name__)
+LOG_FILE = "hybrid_patches_tool"
 
-sys.path.append(CURRENT_PATH + "/../")
+sys.path.extend([CURRENT_PATH + "/../../", "/usr/bin/"])
 
 import utils
 from install_tool import cps_server
 from install_tool import fs_log_util
-from patches_tool.services import RefServices,RefCPSService,RefFsSystemUtils
+from patches_tool.services import RefServices, RefCPSServiceExtent, RefCPSService, RefFsSystemUtils
 
 LOG = fs_log_util.localLog.get_logger(LOG_FILE)
-os.environ.setdefault("CPS_SERVER", "https://cps.az31.singapore--aws.huawei.com:443")
-# os.environ.setdefault("CPS_SERVER", "https://cps.az1.dc1.domainname.com:443")
+LOG.init(LOG_FILE)
 
-PROVIDER_API_NETWORK='provider_api_network'
-PROVIDER_TUNNEL_NETWORK='provider_tunnel_network'
+
+PROVIDER_API_NETWORK='provider_api_network_id'
+PROVIDER_TUNNEL_NETWORK='provider_tunnel_network_id'
 
 provider_opts = [
     cfg.StrOpt('conversion_dir',
@@ -102,17 +102,16 @@ CONF.register_group(group_vtepdriver)
 CONF.register_opts(provider_opts, group_provider_opts)
 CONF.register_opts(vtepdriver, group_vtepdriver)
 
-#CONF(['--config-file=/home/luqitao/002_aws_patch/aws_config.ini'])
 CONF(sys.argv[1:])
 
 def restart_component(service_name, template_name):
     """Stop an component, then start it."""
 
-    ret = cps_server.template_instance_action(service_name, template_name, 'stop')
+    ret = RefCPSServiceExtent.host_template_instance_operate(service_name, template_name, 'stop')
     if not ret:
         LOG.error("cps template_instance_action stop for %s failed." % template_name)
         return ret
-    ret = cps_server.template_instance_action(service_name, template_name, 'start')
+    ret = RefCPSServiceExtent.host_template_instance_operate(service_name, template_name, 'start')
     if not ret:
         LOG.error("cps template_instance_action start for %s failed." % template_name)
         return ret
@@ -197,19 +196,19 @@ def patch_hybridcloud_files():
     4. restart component proc
     """
 
-    utils.execute(['dos2unix', 'install.sh'])
-    utils.execute(['sh', 'install.sh'])
+    utils.execute(['dos2unix', os.path.join(CURRENT_PATH, 'install.sh')])
+    utils.execute(['sh', os.path.join(CURRENT_PATH, 'install.sh')])
 
 
 def construct_aws_conf():
     """Build a json format config by ini file"""
     provider_opts_data = {}
     for o in CONF.provider_opts:
-        provider_opts_data[o] = str(eval("CONF.provider_opts.%s"% o))
+        provider_opts_data[o] = str(eval("CONF.provider_opts.%s" % o))
 
     vtepdriver_data = {}
     for o in CONF.vtepdriver:
-         vtepdriver_data[o] = str(eval("CONF.vtepdriver.%s"% o))
+         vtepdriver_data[o] = str(eval("CONF.vtepdriver.%s" % o))
     return {"provider_opts": provider_opts_data, "vtepdriver": vtepdriver_data}
 
 
@@ -263,4 +262,5 @@ if __name__ == '__main__':
     replace_all_config()
     patch_hybridcloud_files()
     create_aggregate_in_cascaded_node()
+    config_cascaded_az()
 

@@ -10,28 +10,26 @@ from os.path import join
 import socket
 
 CURRENT_PATH = os.path.dirname(os.path.abspath(__file__))
-LOG_FILE = join(CURRENT_PATH, 'hybrid_patches_tool.log')
+LOG_FILE = "hybrid_patches_tool"
 
-sys.path.append(CURRENT_PATH + "/../")
+sys.path.extend([CURRENT_PATH + "/../../", "/usr/bin/"])
 
 import utils
 from install_tool import cps_server
 from install_tool import fs_log_util
-from patches_tool.services import RefServices,RefCPSService,RefFsSystemUtils
+from patches_tool.services import RefServices, RefCPSServiceExtent, RefCPSService, RefFsSystemUtils
 
 LOG = fs_log_util.localLog.get_logger(LOG_FILE)
-os.environ.setdefault("CPS_SERVER", "https://cps.az11.shenzhen--vcloud.huawei.com:443")
-# os.environ.setdefault("CPS_SERVER", "https://cps.az1.dc1.domainname.com:443")
-
+LOG.init(LOG_FILE)
 
 def restart_component(service_name, template_name):
     """Stop an component, then start it."""
 
-    ret = cps_server.template_instance_action(service_name, template_name, 'stop')
+    ret = RefCPSServiceExtent.host_template_instance_operate(service_name, template_name, 'stop')
     if not ret:
         LOG.error("cps template_instance_action stop for %s failed." % template_name)
         return ret
-    ret = cps_server.template_instance_action(service_name, template_name, 'start')
+    ret = RefCPSServiceExtent.host_template_instance_operate(service_name, template_name, 'start')
     if not ret:
         LOG.error("cps template_instance_action start for %s failed." % template_name)
         return ret
@@ -93,8 +91,8 @@ def patch_hybridcloud_files():
     4. restart component proc
     """
 
-    utils.execute(['dos2unix', 'install.sh'])
-    utils.execute(['sh', 'install.sh'])
+    utils.execute(['dos2unix', os.path.join(CURRENT_PATH, 'install.sh')])
+    utils.execute(['sh', os.path.join(CURRENT_PATH, 'install.sh')])
 
 def create_aggregate_in_cascaded_node():
     """
@@ -116,6 +114,6 @@ def create_aggregate_in_cascaded_node():
 if __name__ == '__main__':
     replace_all_config()
     patch_hybridcloud_files()
-    config_cascaded_az()
     create_aggregate_in_cascaded_node()
+    config_cascaded_az()
 

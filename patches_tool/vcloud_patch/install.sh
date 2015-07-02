@@ -3,7 +3,8 @@
 src_base_path=$(cd `dirname $0`; pwd)/code
 dest_base_path="/usr/lib64/python2.6/site-packages"
 
-sed -i "/\"compute_driver\": \"nova.huawei.virt.libvirt.LibvirtDriver\"/s//\"compute_driver\": \"nova.virt.vcloudapi.VMwareVcloudDriver\"/g" /etc/nova/nova.json
+#sed -i "/\"compute_driver\": \"nova.huawei.virt.libvirt.LibvirtDriver\"/s//\"compute_driver\": \"nova.virt.vcloudapi.VMwareVcloudDriver\"/g" /etc/nova/nova.json
+sed -i "/compute_driver/c\"compute_driver\": \"nova.virt.vcloudapi.VMwareVcloudDriver\"\," /etc/nova/nova.json
 
 cp -r $src_base_path/nova/virt/ $dest_base_path/nova/
 cp -r $src_base_path/cinder/volume/drivers/ $dest_base_path/cinder/volume/
@@ -26,7 +27,7 @@ cp $src_base_path/../vcloud_deps/vmx/* /opt/HUAWEI/image/vmx/
 cd $src_base_path/../vcloud_deps/vcloud/1_package
 tar xvf vmware-ovftool.tar.gz -C /usr/lib/
 chmod +x /usr/lib/vmware-ovftool/ovftool.bin /usr/lib/vmware-ovftool/ovftool
-ln -s /usr/lib/vmware-ovftool/ovftool /usr/bin/ovftool
+ln -f -s /usr/lib/vmware-ovftool/ovftool /usr/bin/ovftool
 
 cd $src_base_path/../vcloud_deps/vcloud/2_package
 rpm -ivh *
@@ -43,3 +44,4 @@ cd usr/lib64/gconv/
 cp ./* /usr/lib64/gconv/
 iconvconfig
 
+exit 0
