@@ -8,7 +8,7 @@ import utils
 from utils import CommonCMD, ELog, SSHConnection
 from config import CONF
 from constants import PatchFilePath, CfgFilePath
-from services import RefCPSService
+from services import RefCPSService, CPSServiceBusiness
 import log
 log.init('patches_tool')
 logger = log
@@ -149,11 +149,24 @@ class PatchesTool(object):
                 return self.proxy_match_region[proxy_number]
         return
 
+    def restart_service(self):
+        for proxy in self.proxy_match_region.keys():
+            cps_service = CPSServiceBusiness()
+            cps_service.stop_all(proxy)
+            cps_service.start_all(proxy)
+
+    def verify_services_status(self):
+        for proxy in self.proxy_match_region.keys():
+            cps_service = CPSServiceBusiness()
+            cps_service.check_all_service_template_status(proxy)
+
 if __name__ == '__main__':
     print('Start to patch hybrid cloud patch...')
-    PatchesTool().patch_for_cascading_and_proxy_node()
+    patches_tool = PatchesTool()
+    patches_tool.patch_for_cascading_and_proxy_node()
+    patches_tool.restart_service()
+    patches_tool.verify_services_status()
     print('Finish to patch hybrid cloud patch.')
-    print('Please restart nova proxy, neutron l2/l3 proxy, cinder proxy')
     print('Patched backup file is in DIR - %s' % CONF.DEFAULT.openstack_bak_path)
 
 

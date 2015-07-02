@@ -14,6 +14,7 @@ from nova.proxy import clients
 from nova.proxy import compute_context
 
 from install_tool import cps_server, fsutils, fs_system_util
+import log
 # TODO:
 # import cps_server
 # import fsutils
@@ -347,6 +348,115 @@ class RefCPSServiceExtent(object):
         url = '/cps/v1/instances?service=%s&template=%s' % (service, template)
         body = {'action': action}
         return RefCPSService.post_cps_http(url, body)
+
+
+class CPSServiceBusiness(object):
+    def __init__(self):
+        self.NOVA = 'nova'
+        self.NEUTRON = 'neutron'
+        self.NEUTRON_l2 = 'neutron-l2'
+        self.NEUTRON_l3 = 'neutron-l3'
+        self.CINDER = 'cinder'
+        self.OPT_STOP = 'STOP'
+        self.OPT_START = 'START'
+        self.STATUS_ACTIVE = 'active'
+
+    def get_nova_proxy_template(self, proxy_number):
+        return '-'.join([self.NOVA, proxy_number])
+
+    def get_neutron_l2_proxy_template(self, proxy_number):
+        return '-'.join([self.NEUTRON_l2, proxy_number])
+
+    def get_neutron_l3_proxy_template(self, proxy_number):
+        return '-'.join([self.NEUTRON_l3, proxy_number])
+
+    def get_cinder_template(self, proxy_number):
+        return '-'.join([self.CINDER, proxy_number])
+
+    def stop_nova_proxy(self, proxy_number):
+        nova_proxy_template = self.get_nova_proxy_template(proxy_number)
+        RefCPSServiceExtent.host_template_instance_operate(self.NOVA, nova_proxy_template, self.OPT_STOP)
+
+    def start_nova_proxy(self, proxy_number):
+        nova_proxy_template = self.get_nova_proxy_template(proxy_number)
+        RefCPSServiceExtent.host_template_instance_operate(self.NOVA, nova_proxy_template, self.OPT_START)
+
+    def stop_cinder_proxy(self, proxy_number):
+        cinder_proxy_template = self.get_cinder_template(proxy_number)
+        RefCPSServiceExtent.host_template_instance_operate(self.CINDER, cinder_proxy_template, self.OPT_STOP)
+
+    def start_cinder_proxy(self, proxy_number):
+        cinder_proxy_template = self.get_cinder_template(proxy_number)
+        RefCPSServiceExtent.host_template_instance_operate(self.CINDER, cinder_proxy_template, self.OPT_START)
+
+    def stop_neutron_l2_proxy(self, proxy_number):
+        neutron_proxy_template = self.get_neutron_l2_proxy_template(proxy_number)
+        RefCPSServiceExtent.host_template_instance_operate(self.NEUTRON, neutron_proxy_template, self.OPT_STOP)
+
+    def start_neutron_l2_proxy(self, proxy_number):
+        neutron_proxy_template = self.get_neutron_l2_proxy_template(proxy_number)
+        RefCPSServiceExtent.host_template_instance_operate(self.NEUTRON, neutron_proxy_template, self.OPT_START)
+
+    def stop_neutron_l3_proxy(self, proxy_number):
+        neutron_proxy_template = self.get_neutron_l3_proxy_template(proxy_number)
+        RefCPSServiceExtent.host_template_instance_operate(self.NEUTRON, neutron_proxy_template, self.OPT_STOP)
+
+    def start_neutron_l3_proxy(self, proxy_number):
+        neutron_proxy_template = self.get_neutron_l3_proxy_template(proxy_number)
+        RefCPSServiceExtent.host_template_instance_operate(self.NEUTRON, neutron_proxy_template, self.OPT_START)
+
+    def stop_all(self, proxy_number):
+        self.stop_cinder_proxy(proxy_number)
+        self.stop_neutron_l2_proxy(proxy_number)
+        self.stop_neutron_l3_proxy(proxy_number)
+        self.stop_nova_proxy(proxy_number)
+
+    def start_all(self, proxy_number):
+        self.start_cinder_proxy(proxy_number)
+        self.start_neutron_l2_proxy(proxy_number)
+        self.start_neutron_l3_proxy(proxy_number)
+        self.start_nova_proxy(proxy_number)
+
+    def check_status_for_template(self, service, template, aim_status):
+        template_instance_info = RefCPSServiceExtent.list_template_instance(service, template)
+        if template_instance_info is None or len(template_instance_info.get('instances')) < 1:
+            print('Template instance info of Service<%s> Template<%s> is None.' % (service, template))
+            log.error('Template instance info of Service<%s> Template<%s> is None.' % (service, template))
+            log.error('template_instance_info: %s' % template_instance_info)
+            return False
+        status = template_instance_info.get('instances')[0].get('hastatus')
+        if status == aim_status:
+            log.info('Status of service<%s>, template<%s> is: %s' % (service, template, status))
+            print('Status of service<%s>, template<%s> is: %s' % (service, template, status))
+            return True
+        else:
+            log.error('Status of service<%s>, template<%s> is: %s' % (service, template, status))
+            print('Status of service<%s>, template<%s> is: %s' % (service, template, status))
+            return False
+
+    def check_nova_template(self, proxy_number):
+        nova_template = self.get_nova_proxy_template(proxy_number)
+        self.check_status_for_template(self.NOVA, nova_template, self.STATUS_ACTIVE)
+
+    def check_neutron_l2_template(self, proxy_number):
+        neutron_l2_template = self.get_neutron_l2_proxy_template(proxy_number)
+
+        self.check_status_for_template(self.NEUTRON, neutron_l2_template, self.STATUS_ACTIVE)
+
+    def check_neutron_l3_template(self, proxy_number):
+        neutron_l3_template = self.get_neutron_l3_proxy_template(proxy_number)
+        self.check_status_for_template(self.NEUTRON, neutron_l3_template, self.STATUS_ACTIVE)
+
+    def check_cinder_template(self, proxy_number):
+        cinder_template = self.get_cinder_template(proxy_number)
+        self.check_status_for_template(self.CINDER, cinder_template, self.STATUS_ACTIVE)
+
+    def check_all_service_template_status(self, proxy_number):
+        self.check_cinder_template(proxy_number)
+        self.check_neutron_l2_template(proxy_number)
+        self.check_neutron_l3_template(proxy_number)
+        self.check_nova_template(proxy_number)
+
 
 class RefFsUtils(object):
 

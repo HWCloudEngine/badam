@@ -216,7 +216,6 @@ class SSHConnection(object):
             self.sftp_open = False
         self.transport.close()
 
-
 if __name__ == '__main__':
     # patch_path = 'hybrid_tricrile/nova/nova_patch/'
     # print get_hybrid_cloud_badam_parent_path()
