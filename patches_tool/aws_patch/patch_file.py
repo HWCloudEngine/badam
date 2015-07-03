@@ -102,7 +102,8 @@ CONF.register_group(group_vtepdriver)
 CONF.register_opts(provider_opts, group_provider_opts)
 CONF.register_opts(vtepdriver, group_vtepdriver)
 
-CONF(sys.argv[1:])
+patches_tool_config_file = os.path.join(os.path.dirname(CURRENT_PATH), 'patches_tool_config.ini')
+CONF(['--config-file=%s' % patches_tool_config_file])
 
 def restart_component(service_name, template_name):
     """Stop an component, then start it."""

@@ -30,7 +30,6 @@ vcloudapi_opts = [
                help='node name,which a node is a vcloud vcd '
                'host.'),
     cfg.StrOpt('vcloud_host_ip',
-               default='162.3.110.103',
                help='Hostname or IP address for connection to VMware VCD '
                'host.'),
     cfg.IntOpt('vcloud_host_port',
@@ -42,15 +41,12 @@ vcloudapi_opts = [
                help='Host username for connection to VMware VCD '
                'host.'),
     cfg.StrOpt('vcloud_host_password',
-               default='Galax0088',
                help='Host password for connection to VMware VCD '
                'host.'),
     cfg.StrOpt('vcloud_org',
-               default='nkapotoxin-org',
                help='User org for connection to VMware VCD '
                'host.'),
     cfg.StrOpt('vcloud_vdc',
-               default='nkapotoxin-hybrid-org',
                help='Vdc for connection to VMware VCD '
                'host.'),
     cfg.StrOpt('vcloud_version',

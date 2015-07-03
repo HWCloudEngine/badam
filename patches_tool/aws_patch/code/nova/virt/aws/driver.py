@@ -282,7 +282,8 @@ class AwsEc2Driver(driver.ComputeDriver):
 
     def _generate_provider_node_name(self, instance):
         # xxx(wangfeng): it may should use instance name(cacading instance uuid)
-        return instance.uuid
+        # return instance.uuid
+        return instance.hostname
 
     def _get_provider_node_size(self, flavor):
         return NodeSize(id=CONF.provider_opts.flavor_map[flavor.name],
@@ -370,47 +371,152 @@ class AwsEc2Driver(driver.ComputeDriver):
                 set_tag_func(provider_image, {'hybrid_cloud_image_id': image_uuid})
 
 
-        # 2. map flovar to node size, from configuration
+        # 2.1 map flovar to node size, from configuration
         provider_size = self._get_provider_node_size(instance.get_flavor())
 
-        # 3. get a subnet, create_node in this subnet
-        # provider_subnet = self.compute_adapter.ex_list_subnets()[0]
+        # 2.2 get a subnets and create network interfaces
+        provider_interface_data = adapter.NetworkInterface(name='eth_data',
+                                                           subnet_id=CONF.provider_opts.subnet_data,
+                                                           device_index=0)
 
-        provider_subnet_data = self.compute_adapter.ex_list_subnets(
-            subnet_ids=[CONF.provider_opts.subnet_data])[0]
-        provider_subnet_api = self.compute_adapter.ex_list_subnets(
-            subnet_ids=[CONF.provider_opts.subnet_api])[0]
+        provider_interface_api = adapter.NetworkInterface(name='eth_control',
+                                                           subnet_id=CONF.provider_opts.subnet_api,
+                                                           device_index=1)
+        provider_interfaces = [provider_interface_data,provider_interface_api]
 
+        # 2.3 generate provider node name, which useful for debugging
         provider_node_name = self._generate_provider_node_name(instance)
+
+        # 2.4 generate user data, which use for network initialization
         user_data = self._generate_user_data()
-        provider_node = self.compute_adapter.create_node(name=provider_node_name,
-                                                         image=provider_image,
-                                                         size=provider_size,
-                                                         ex_subnet=provider_subnet_data,
-                                                         ex_userdata=user_data)
+
+        # 2.5 create data volumes' block device mappings, skip boot volume
+        provider_bdms = None
+        bdm_list = block_device_info.get('block_device_mapping',[])
+        data_bdm_list = []
+        if len(bdm_list)>0:
+            root_volume_name = block_device_info.get('root_device_name',None)
+
+            # if data volume exist: more than one block device mapping
+            # 2.5.1 import volume to aws
+            provider_volume_ids = []
+            for bdm in bdm_list:
+                # skip boot volume
+                if bdm.get('mount_device') == root_volume_name:
+                    continue
+                data_bdm_list.append(bdm)
+
+                connection_info = bdm.get('connection_info',None)
+                volume_id = connection_info['data']['volume_id']
+
+                provider_volume_id = self._get_provider_volume_id(context,volume_id)
+                # only if volume DO NOT exist in aws when import volume
+                if not provider_volume_id:
+                    provider_volume_id = self._import_volume_from_glance(
+                        context,
+                        volume_id,
+                        CONF.provider_opts.availability_zone)
+
+                provider_volume_ids.append(provider_volume_id)
+
+            # 2.5.2 create snapshot
+            provider_snapshots = []
+
+            if len(provider_volume_ids)>0:
+                provider_volumes = self.compute_adapter.list_volumes(ex_volume_ids=provider_volume_ids)
+                for provider_volume in provider_volumes:
+                    provider_snapshots.append(
+                        self.compute_adapter.create_volume_snapshot(provider_volume))
+
+            provider_snapshot_ids = []
+            for snap in provider_snapshots:
+                provider_snapshot_ids.append(snap.id)
+
+            self._wait_for_snapshot_completed(provider_snapshot_ids)
+
+            # 2.5.3 create provider bdm list from bdm_info and snapshot
+            provider_bdms = []
+            if len(provider_snapshots)>0:
+                for ii in range(0, len(data_bdm_list)):
+                    provider_bdm = {'DeviceName':
+                                        self._trans_device_name(data_bdm_list[ii].get('mount_device')),
+                                    'Ebs': {'SnapshotId':provider_snapshots[ii].id,
+                                            'DeleteOnTermination': data_bdm_list[ii].get('delete_on_termination')}
+                                    }
+                    provider_bdms.append(provider_bdm)
+
+        # 3. create node
+        try:
+            provider_node = self.compute_adapter.create_node(name=provider_node_name,
+                                                             image=provider_image,
+                                                             size=provider_size,
+                                                             location=CONF.provider_opts.availability_zone,
+                                                             # ex_subnet=provider_subnet_data,
+                                                             ex_blockdevicemappings=provider_bdms,
+                                                             ex_network_interfaces=provider_interfaces,
+                                                             ex_userdata=user_data)
+        except Exception as e:
+            LOG.error(e.message)
+            raise e
 
         # 4. mapping instance id to provider node, using metadata
-        instance.metadata['provider_node_id'] =  provider_node.id
+        instance.metadata['provider_node_id'] = provider_node.id
         instance.save()
         set_tag_func = getattr(self.compute_adapter, 'ex_create_tags')
         if set_tag_func:
             set_tag_func(provider_node, {'hybrid_cloud_instance_id': instance.uuid})
 
-        # 5 create a network interface and attach it to node
+        # 5 wait for node avalaible
         while provider_node.state!=NodeState.RUNNING and provider_node.state!=NodeState.STOPPED:
-            provider_node = self.compute_adapter.list_nodes(ex_node_ids=[provider_node.id])[0]
+            try:
+                provider_node = self.compute_adapter.list_nodes(ex_node_ids=[provider_node.id])[0]
+            except:
+                LOG.warning('Provider instance is booting but adapter is failed to get status. Try it later')
             time.sleep(10)
 
-        provider_interface = self.compute_adapter.ex_create_network_interface(
-            provider_subnet_api,
-            name='Test Interface',
-            description='My Test')
-        try:
-            self.compute_adapter.ex_attach_network_interface_to_node(provider_interface,provider_node, 1)
-        except:
-            self.compute_adapter.ex_attach_network_interface_to_node(provider_interface,provider_node, 1)
+
+        # 6 mapp data volume id to provider
+        provider_bdm_list = provider_node.extra.get('block_device_mapping')
+        for ii in range(0, len(data_bdm_list)):
+            provider_volume_id = provider_bdm_list[ii+1].get('ebs').get('volume_id')
+            provider_volumes = self.compute_adapter.list_volumes(ex_volume_ids=[provider_volume_id])
+
+            connection_info = data_bdm_list[ii].get('connection_info',[])
+            volume_id = connection_info['data']['volume_id']
+
+            self._map_volume_to_provider(context, volume_id, provider_volumes[0])
+
+
+        # provider_interface = self.compute_adapter.ex_create_network_interface(
+        #     provider_subnet_api,
+        #     name='Test Interface',
+        #     description='My Test')
+        # try:
+        #     self.compute_adapter.ex_attach_network_interface_to_node(provider_interface,provider_node, 1)
+        # except:
+        #     self.compute_adapter.ex_attach_network_interface_to_node(provider_interface,provider_node, 1)
 
         return provider_node
+
+    def _trans_device_name(self, orig_name):
+        if not orig_name:
+            return orig_name
+        else:
+            return orig_name.replace('/dev/vd', '/dev/sd')
+
+    def _wait_for_snapshot_completed(self, provider_id_list):
+
+        is_all_completed = False
+
+        while not is_all_completed:
+            snapshot_list = self.compute_adapter.list_snapshots(snapshot_ids=provider_id_list)
+            is_all_completed = True
+            for snapshot in snapshot_list:
+                if snapshot.extra.get('state') != 'completed':
+                    is_all_completed = False
+                    time.sleep(10)
+                    break
+
 
     def _generate_user_data(self):
         return 'RABBIT_HOST_IP=%s;RABBIT_PASSWORD=%s;VPN_ROUTE_GATEWAY=%s' % (CONF.provider_opts.rabbit_host_ip_public,
@@ -444,32 +550,45 @@ class AwsEc2Driver(driver.ComputeDriver):
         self.compute_adapter.detach_volume(provider_volume)
 
         # 4. attach this volume
-        self.compute_adapter.attach_volume(provider_node,provider_volume, provider_volume.extra.get('device'))
+        self.compute_adapter.attach_volume(provider_node,
+                                           provider_volume,
+                                           self._trans_device_name(provider_volume.extra.get('device')))
 
+    def _get_volume_ids_from_bdms(self, bdms):
+        volume_ids = []
+        for bdm in bdms:
+            volume_ids.append(bdm['connection_info']['data']['volume_id'])
+        return volume_ids
 
     def spawn(self, context, instance, image_meta, injected_files,
               admin_password, network_info=None, block_device_info=None):
         """Create VM instance."""
-        # import pdb
-        # pdb.set_trace()
-        LOG.debug(_("image meta is:%s") % image_meta)
         LOG.debug(_("instance is:%s") % instance)
         bdms = block_device_info.get('block_device_mapping',[])
-        if len(bdms) > 0:
-            volume_id = bdms[0]['connection_info']['data']['volume_id']
-            provider_volume_id = self._get_provider_volume_id(context,volume_id)
-            if provider_volume_id is not None:
-                provider_volumes = self.compute_adapter.list_volumes(ex_volume_ids=[provider_volume_id])
+
+        # boot from volume
+        if not instance.image_ref and len(bdms)>0:
+            volume_ids = self._get_volume_ids_from_bdms(bdms)
+            root_volume_id = volume_ids[0]
+            provider_root_volume_id = self._get_provider_volume_id(context, root_volume_id)
+            if provider_root_volume_id is not None:
+                provider_volumes = self.compute_adapter.list_volumes(ex_volume_ids=[provider_root_volume_id])
             else:
                 provider_volumes = []
 
             if not provider_volumes:
                 # if has no provider volume, boot from image: (import image in provider cloud, then boot instance)
                 provider_node = self._spawn_from_image(context, instance, image_meta, injected_files,
-                                    admin_password, network_info, block_device_info)
+                                                       admin_password, network_info, block_device_info)
 
-                provider_volume = self.compute_adapter.list_volumes(node=provider_node)
-                self._map_volume_to_provider(context, volume_id, provider_volume[0])
+                # provider_volume = self.compute_adapter.list_volumes(node=provider_node)
+
+                # mapp root volume to provider
+                provider_bdm_list = provider_node.extra.get('block_device_mapping')
+                provider_root_volume_id = provider_bdm_list[0].get('ebs').get('volume_id')
+                provider_root_volume = self.compute_adapter.list_volumes(
+                    ex_volume_ids=[provider_root_volume_id])[0]
+                self._map_volume_to_provider(context, root_volume_id, provider_root_volume)
 
             elif len(provider_volumes) == 0:
                 # if has provider volume, boot from volume:
@@ -478,18 +597,24 @@ class AwsEc2Driver(driver.ComputeDriver):
             else:
                 LOG.error('create instance %s faild: multi volume confusion') % instance.uuid
                 raise exception_ex.MultiVolumeConfusion
+
+        # boot from image
         else:
             # if boot from image: (import image in provider cloud, then boot instance)
             self._spawn_from_image(context, instance, image_meta, injected_files,
                                     admin_password, network_info, block_device_info)
+
+
+
         LOG.debug("creating instance %s success!" % instance.uuid)
 
     def _map_volume_to_provider(self,context, volume_id, provider_volume):
         # mapping intance root-volume to cinder volume
         if not provider_volume:
-            self.cinder_api.update_volume_metadata(context,
+            self.cinder_api.delete_volume_metadata(context,
                                                    volume_id,
-                                                   {'provider_volume_id': None})
+                                                   ['provider_volume_id'])
+
         else:
             self.cinder_api.update_volume_metadata(context,
                                                    volume_id,
@@ -523,6 +648,71 @@ class AwsEc2Driver(driver.ComputeDriver):
                                   block_device_info=None):
         pass
 
+    def _import_volume_from_glance(self, context, volume_id, volume_loc):
+
+        volume = self.cinder_api.get(context,volume_id)
+        image_meta = volume.get('volume_image_metadata')
+        if not image_meta:
+            LOG.error('Provider Volume NOT Found!')
+            exception_ex.VolumeNotFoundAtProvider
+        else:
+            # 1.1 download qcow2 file from glance
+            image_uuid = self._get_image_id_from_meta(image_meta)
+
+            orig_file_name = 'orig_file.qcow2'
+            this_conversion_dir = '%s/%s' % (CONF.provider_opts.conversion_dir,volume_id)
+            orig_file_full_name = '%s/%s' % (this_conversion_dir,orig_file_name)
+
+            fileutils.ensure_tree(this_conversion_dir)
+            self.glance_api.download(context, image_uuid,dest_path=orig_file_full_name)
+
+            # 1.2 convert to provider image format
+            converted_file_format = 'vmdk'
+            converted_file_name = '%s.%s' % ('converted_file', converted_file_format)
+            converted_file_path = '%s/%s' % (CONF.provider_opts.conversion_dir,volume_id)
+            converted_file_full_name =  '%s/%s' % (converted_file_path,converted_file_name)
+            convert_image(orig_file_full_name,
+                          converted_file_full_name,
+                          converted_file_format,
+                          subformat='streamoptimized')
+
+
+            # 1.3 upload volume file to provider storage (S3,eg)
+            container = self.storage_adapter.get_container(CONF.provider_opts.storage_tmp_dir)
+            # self.storage_adapter.upload_object(converted_file_full_name,container,volume_id)
+
+            object_name = volume_id
+            extra = {'content_type': 'text/plain'}
+
+            with open(converted_file_full_name,'rb') as f:
+                obj = self.storage_adapter.upload_object_via_stream(container=container,
+                                                           object_name=object_name,
+                                                           iterator=f,
+                                                           extra=extra)
+
+            # 1.4 import volume
+            obj = self.storage_adapter.get_object(container.name,volume_id)
+
+            task = self.compute_adapter.create_import_volume_task(CONF.provider_opts.storage_tmp_dir,
+                                                                  volume_id,
+                                                                  'VMDK',
+                                                                  obj.size,
+                                                                  str(volume.get('size')),
+                                                                  volume_loc=volume_loc)
+            while not task.is_completed():
+                time.sleep(10)
+                if task.is_cancelled():
+                    LOG.error('import volume fail!')
+                    raise exception_ex.UploadVolumeFailure
+                task = self.compute_adapter.get_task_info(task)
+
+            # xxx
+            # task.wait_for_completion()
+
+            task.clean_up()
+
+            return task.volume_id
+
     def attach_volume(self, context, connection_info, instance, mountpoint,
                       disk_bus=None, device_type=None, encryption=None):
         """Attach volume storage to VM instance."""
@@ -532,10 +722,9 @@ class AwsEc2Driver(driver.ComputeDriver):
         volume_id = connection_info['data']['volume_id']
         instance_id = instance.uuid
         LOG.info("attach volume")
-        provider_node_id = self._get_provider_node_id(instance)
-        provider_volume_id = self._get_provider_volume_id(context, volume_id)
 
         # 1.get node
+        provider_node_id = self._get_provider_node_id(instance)
         if not provider_node_id:
             LOG.error('instance %s is not found' % instance_id)
             raise exception.InstanceNotFound
@@ -550,68 +739,14 @@ class AwsEc2Driver(driver.ComputeDriver):
             raise exception_ex.MultiInstanceConfusion
         provider_node = provider_nodes[0]
 
-        # 2.get volume
+        # 2.get volume exist or import volume
+        provider_volume_id = self._get_provider_volume_id(context, volume_id)
         if not provider_volume_id:
             # LOG.error('volume %s is not found' % volume_id)
             # raise exception.VolumeNotFound
-            # 1. if provider_image do not exist,, import image first
-            volume = self.cinder_api.get(context,volume_id)
-            image_meta = volume.get('volume_image_metadata')
-            if not image_meta:
-                LOG.error('Provider Volume NOT Found!')
-                exception_ex.VolumeNotFoundAtProvider
-            else:
-                # 1.1 download qcow2 file from glance
-                image_uuid = self._get_image_id_from_meta(image_meta)
-
-                orig_file_name = 'orig_file.qcow2'
-                this_conversion_dir = '%s/%s' % (CONF.provider_opts.conversion_dir,volume_id)
-                orig_file_full_name = '%s/%s' % (this_conversion_dir,orig_file_name)
-
-                fileutils.ensure_tree(this_conversion_dir)
-                self.glance_api.download(context,image_uuid,dest_path=orig_file_full_name)
-
-                # 1.2 convert to provider image format
-                converted_file_format = 'vmdk'
-                converted_file_name = '%s.%s' % ('converted_file', converted_file_format)
-                converted_file_path = '%s/%s' % (CONF.provider_opts.conversion_dir,volume_id)
-                converted_file_full_name =  '%s/%s' % (converted_file_path,converted_file_name)
-                convert_image(orig_file_full_name,
-                              converted_file_full_name,
-                              converted_file_format,
-                              subformat='streamoptimized')
-
-
-                # 1.3 upload to provider_image_id
-                container = self.storage_adapter.get_container(CONF.provider_opts.storage_tmp_dir)
-                # self.storage_adapter.upload_object(converted_file_full_name,container,volume_id)
-
-                object_name = volume_id
-                extra = {'content_type': 'text/plain'}
-
-                with open(converted_file_full_name,'rb') as f:
-                    obj = self.storage_adapter.upload_object_via_stream(container=container,
-                                                               object_name=object_name,
-                                                               iterator=f,
-                                                               extra=extra)
-
-                obj = self.storage_adapter.get_object(container.name,volume_id)
-
-                task = self.compute_adapter.create_import_volume_task(CONF.provider_opts.storage_tmp_dir,
-                                                                      volume_id,
-                                                                      'VMDK',
-                                                                      obj.size,
-                                                                      str(volume.get('size')),
-                                                                      volume_loc=provider_node.extra.get('availability'))
-                while not task.is_completed():
-                    time.sleep(10)
-                    if task.is_cancelled():
-                        LOG.error('import volume fail!')
-                        raise exception_ex.UploadVolumeFailure
-                    task = self.compute_adapter.get_task_info(task)
-
-                provider_volume_id = task.volume_id
-
+            # if provider_image do not exist,, import image first
+            provider_volume_id = self._import_volume_from_glance(context,volume_id,
+                                                                 provider_node.extra.get('availability'))
 
         provider_volumes = self.compute_adapter.list_volumes(ex_volume_ids=[provider_volume_id])
 
@@ -629,7 +764,8 @@ class AwsEc2Driver(driver.ComputeDriver):
             raise exception.InvalidVolume
 
         # 3.attach
-        self.compute_adapter.attach_volume(provider_node,provider_volume,mountpoint)
+        self.compute_adapter.attach_volume(provider_node, provider_volume,
+                                           self._trans_device_name(mountpoint))
 
         # 4. map volume to provider volume
         self._map_volume_to_provider(context, volume_id, provider_volume)
@@ -654,6 +790,31 @@ class AwsEc2Driver(driver.ComputeDriver):
                 LOG.error('Can NOT get volume %s from provider cloud tag' % volume_id)
 
         return provider_volume_id
+
+    def _get_provider_volume(self, context, volume_id):
+
+        provider_volume = None
+
+        provider_volume_id = self.cinder_api.get_volume_metadata_value(context,volume_id,'provider_volume_id')
+
+        try:
+            if not provider_volume_id:
+                provider_volumes = self.compute_adapter.list_volumes(ex_filters={'tag:hybrid_cloud_volume_id':volume_id})
+            else:
+                provider_volumes = self.compute_adapter.list_volumes(ex_volume_ids=[provider_volume_id])
+        except:
+            raise
+
+        if len(provider_volumes) == 1:
+            provider_volume = provider_volumes[0]
+        elif len(provider_volumes)>1:
+            raise exception_ex.MultiImageConfusion
+        else:
+            LOG.warning('Volume %s NOT Found at provider cloud' % volume_id)
+            provider_volume = None
+            # raise exception.ImageNotFound
+
+        return provider_volume
 
 
 
@@ -766,6 +927,7 @@ class AwsEc2Driver(driver.ComputeDriver):
 
         LOG.debug('begin destory node %s',instance.uuid)
 
+        # 0.0get node
         provider_node_id = self._get_provider_node_id(instance)
         if not provider_node_id:
             LOG.warning('Instance %s NOT Found at provider cloud' % instance.uuid)
@@ -779,10 +941,22 @@ class AwsEc2Driver(driver.ComputeDriver):
             LOG.error('More than one instance %s are Found at provider cloud' % instance.uuid)
             raise exception_ex.MultiInstanceConfusion
 
+
         node = nodes[0]
 
+        # 0.1 get network interfaces
+        provider_eth_list = node.extra.get('network_interfaces',None)
+
+        # 0.2 get volume
+        # provider_bdm_list = node.extra.get('block_device_mapping',None)
+        # provider_vol_id_list = [];
+        # for bdm in provider_bdm_list:
+        #     provider_vol_id_list.append(bdm['ebs'].get('volume_id'))
+        provider_vol_list = self.compute_adapter.list_volumes(node=node)
+
+
+        # 1. dettach volumes, if needed
         if not destroy_disks:
-            # dettach volumes
             if len(block_device_info) > 0:
                 provider_volume_ids = []
                 # get volume id
@@ -791,15 +965,50 @@ class AwsEc2Driver(driver.ComputeDriver):
                     provider_volume_ids.append(self._get_provider_volume_id(context,volume_id))
 
                 # get volume in provide cloud
-                provider_volumes = self.compute_adapter.list_volumes(node=provider_volume_ids)
+                provider_volumes = self.compute_adapter.list_volumes(ex_volume_ids=provider_volume_ids)
 
                 # detach
                 for provider_volume in provider_volumes:
                     self.compute_adapter.detach_volume(provider_volume)
                     self._map_volume_to_provider(context, volume_id, None)
 
-        # destory node
-        self.compute_adapter.destroy_node(node)
+        # 2.destory node
+        # self.compute_adapter.destroy_node(node)
+        try:
+            self.compute_adapter.destroy_node(node)
+        except Exception as e:
+            LOG.warning('Failed to detele provder nodes. %s', e.message)
+
+        while node.state!=NodeState.TERMINATED:
+            time.sleep(5)
+            nodes = self.compute_adapter.list_nodes(ex_node_ids=[node.id])
+            if not nodes:
+                break
+            else:
+                node = nodes[0]
+
+
+        # 3. clean up
+        # 3.1 delete network interface anyway
+        for eth in provider_eth_list:
+            try:
+                self.compute_adapter.ex_delete_network_interface(eth)
+            except:
+                LOG.warning('Failed to delete network interface %s', eth.id)
+
+        # 3.2 delete volumes, if needed
+        if destroy_disks:
+            for vol in provider_vol_list:
+                try:
+                    self.compute_adapter.destroy_volume(vol)
+                except:
+                    LOG.warning('Failed to delete network interface %s', vol.id)
+
+        # todo: unset volume mapping
+        bdms = block_device_info.get('block_device_mapping',[])
+        volume_ids = self._get_volume_ids_from_bdms(bdms)
+        for volume_id in volume_ids:
+            self._map_volume_to_provider(context, volume_id, None)
 
 
     def _get_provider_node_id(self, instance_obj):
@@ -861,7 +1070,7 @@ class AwsEc2Driver(driver.ComputeDriver):
         
     def get_instance_macs(self, instance):
         LOG.debug('Start to get macs of instance %s', instance)
-        filters = {'tag:Name': instance['uuid']}
+        filters = {'tag:hybrid_cloud_instance_id': instance['uuid']}
         nodes = self.compute_adapter.list_nodes(ex_filters=filters)
         instance_macs = dict()
         if nodes is not None and len(nodes) == 1:

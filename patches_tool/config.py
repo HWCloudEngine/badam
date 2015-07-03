@@ -6,15 +6,14 @@ import os
 import traceback
 from oslo.config import cfg
 from constants import FileName
-import logging
 import socket
 
 import log
-log.init('patches_tool_config')
-
-from utils import ELog, CommonCMD, SSHConnection
+import utils
+from utils import CommonCMD, SSHConnection
 from services import RefServices, RefCPSService, RefCPSServiceExtent, RefFsUtils, RefFsSystemUtils, CPSServiceBusiness
 from constants import CfgFilePath
+from dispatch import DispatchPatchTool
 
 module_logger = log
 print_logger = log
@@ -46,7 +45,9 @@ default_opts = [
 CONF.register_group(default_group)
 CONF.register_opts(default_opts, default_group)
 
-CONF(['--config-file=patches_tool_config.ini'])
+
+absolute_config_file = os.path.join(utils.get_patches_tool_path(), FileName.PATCHES_TOOL_CONFIG_FILE)
+CONF(['--config-file=%s' % absolute_config_file])
 
 
 class ConfigCascading(object):
@@ -65,17 +66,25 @@ class ConfigCascading(object):
         self.cascading_os_region_name = '.'.join([local_az, local_dc])
 
     def check_service_status(self):
+        print('****Start to check service status...')
+
         cps_service = CPSServiceBusiness()
         for proxy in self.proxies:
             cps_service.check_all_service_template_status(proxy)
 
+        print('****End to check service status.')
+
     def restart_services(self):
+        print('****Start to restart services...')
+
         cps_service = CPSServiceBusiness()
         for proxy in self.proxies:
             cps_service.stop_all(proxy)
 
         for proxy in self.proxies:
             cps_service.start_all(proxy)
+
+        print('****Finish to restart services.')
 
     def add_role_for_proxies(self):
         for proxy_number in self.proxies:
@@ -272,10 +281,12 @@ class ConfigCascading(object):
             neutron_network_role = self._get_neutron_role_name(proxy)
             for host in host_info['hosts']:
                 roles_list = host['roles']
+                local_path_of_neutron_l2_proxy = os.path.join(utils.get_patches_tool_path(), CfgFilePath.NEUTRON_L2_PROXY_PATH_TEMPLATE)
                 if neutron_network_role in roles_list:
                     proxy_host_ip = host['manageip']
                     ssh = SSHConnection(proxy_host_ip, 'root', 'Huawei@CLOUD8!')
-                    ssh.put(CfgFilePath.NEUTRON_L2_PROXY_PATH_TEMPLATE, CfgFilePath.NEUTRON_L2_PROXY_PATH)
+
+                    ssh.put(local_path_of_neutron_l2_proxy, CfgFilePath.NEUTRON_L2_PROXY_PATH)
                     ssh.close()
 
     def _get_proxy_region_and_host_region_name(self, proxy_matched_region):
@@ -390,24 +401,13 @@ class ConfigCascading(object):
             print_logger.error('FAILED to update template for service<%s>, template<%s>' % (service, template))
             return False
 
-if __name__ == '__main__':
-    if len(sys.argv) <= 1:
-        print('Please select mode, options is: 1. cascading; 2. cascaded; 3. check; 4. restart')
-        print('Option <cascading> is use to config cascading node and proxy node. Only need to execute once in cascading node.')
-        print('Option <cascaded> is use to config cascaded node. Need to copy to each cascaded node to execute.')
-        print('Option <check> is use to check status of services in cascading and proxy node.')
-        print('Option <restart> is use to restart services in cascading and proxy node.')
-        exit(0)
-    print('Start to config cascading....')
-    mode = sys.argv[1]
-    config_cascading = ConfigCascading()
-    if mode == 'cascading':
-        config_cascading.config_nova_scheduler()
-        config_cascading.add_role_for_proxies()
-        config_cascading.config_proxy_to_connect_with_cascaded()
-        config_cascading.config_big_l2_layer_in_proxy_node()
+    def config_cascading_nodes(self):
+        self.config_nova_scheduler()
+        self.add_role_for_proxies()
+        self.config_proxy_to_connect_with_cascaded()
+        self.config_big_l2_layer_in_proxy_node()
 
-    elif mode == 'cascaded':
+    def config_cascaded_nodes(self):
         print('****Start to config big l2 layer...')
         config_cascading.config_big_l2_layer_in_cascaded_node()
         print('****End to config big l2 layer...')
@@ -419,13 +419,36 @@ if __name__ == '__main__':
         print('****Start to create route table...')
         config_cascading.create_route_table_in_cascaded_node()
         print('****End to create route table...')
+
+if __name__ == '__main__':
+    if len(sys.argv) <= 1:
+        print('Please select mode, options is: 1. cascading; 2. cascaded; 3. check; 4. restart')
+        print('Option <cascading> is use to config cascading node and proxy node. Only need to execute once in cascading node.')
+        print('Option <cascaded> is use to config cascaded node. Need to copy to each cascaded node to execute.')
+        print('Option <check> is use to check status of services in cascading and proxy node.')
+        print('Option <restart> is use to restart services in cascading and proxy node.')
+        exit(0)
+    print('Start to config cascading....')
+    log.init('patches_tool_config')
+    mode = sys.argv[1]
+    config_cascading = ConfigCascading()
+
+    #first to dispatch patch_tool to all cascaded node.
+    dispatch_patch_tool = DispatchPatchTool()
+    dispatch_patch_tool.dispatch_patches_tool_to_remote_cascaded_nodes()
+
+    if mode == 'cascading':
+        #Second to config cascading node to add proxy roles and config proxy nodes connect with cascaded nodes.
+        config_cascading.config_cascading_nodes()
+
+        #Thrid to Config cascaded node to connect with cascading node.
+        dispatch_patch_tool.remote_config_cascaded_for_all_type_node()
+    elif mode == 'cascaded':
+    #this mode cascaded is use to be called in cascaded node remotely in cascading node.
+        config_cascading.config_cascaded_nodes()
     elif mode == 'check':
-        print('****Start to check service status...')
         config_cascading.check_service_status()
-        print('****End to check service status.')
     elif mode == 'restart':
-        print('****Start to restart services...')
         config_cascading.restart_services()
-        print('****Finish to restart services.')
 
     print('End to config')

@@ -47,6 +47,8 @@ sed -i "/\"compute_driver\"/c\"compute_driver\": \"nova.virt.vtep.aws_driver.Vte
 dos2unix $src_base_path/../aws_config.ini
 cgw_certificate_path=`cat $src_base_path/../aws_config.ini | grep cgw_certificate | awk  -F '=' '{print $2}'`
 cp $src_base_path/../cgw.pem $cgw_certificate_path
+chmod 600 $cgw_certificate_path
+chown openstack:openstack $cgw_certificate_path
 
 dos2unix $src_base_path/../add_router.sh
 sh $src_base_path/../add_router.sh

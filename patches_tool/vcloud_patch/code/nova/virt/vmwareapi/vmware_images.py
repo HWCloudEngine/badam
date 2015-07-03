@@ -18,6 +18,7 @@ Utility functions for Image transfer and manipulation.
 """
 
 import os
+import subprocess
 
 from oslo.config import cfg
 
@@ -65,7 +66,7 @@ class VMwareImage(object):
             linked_clone(bool): use linked clone, or don't
         """
         self.image_id = image_id
-        self.file_size = file_size
+        self.file_size = (int)(file_size)
         self.os_type = os_type
         self.adapter_type = adapter_type
         self.disk_type = disk_type
@@ -240,10 +241,48 @@ def fetch_image(context, instance, host, dc_name, ds_name, file_path,
     file_size = int(metadata['size'])
     read_iter = IMAGE_API.download(context, image_ref)
     read_file_handle = read_write_util.GlanceFileRead(read_iter)
-    write_file_handle = read_write_util.VMwareHTTPWriteFile(
-        host, dc_name, ds_name, cookies, file_path, file_size)
-    start_transfer(context, read_file_handle, file_size,
-                   write_file_handle=write_file_handle)
+    
+    img_id = metadata["id"]
+    img_origin_name = '/tmp/' + img_id +'.tmp'
+    fp = open(img_origin_name, "wb")
+    
+    start_transfer(context, read_file_handle, file_size, write_file_handle=fp)
+ 
+    # convert
+    #upload_file_name="/hybridimg.temp"
+    if metadata["disk_format"] == 'qcow2':
+        img_converted_name = '/tmp/' + img_id +'.vmdk'
+        result = subprocess.call(["qemu-img convert -f qcow2 -O vmdk  " + img_origin_name + " " + img_converted_name],shell=True)
+        if result == 0:
+            upload_file_name = img_converted_name
+            #change metadata
+            metadata["disk_format"] = 'vmdk'
+            file_size = os.path.getsize(img_converted_name)
+            metadata["size"]=file_size
+            file_path = file_path.replace('-flat.vmdk','.vmdk')
+                         
+    else:
+        upload_file_name = img_origin_name
+    #upload to datastore
+    #fpv = open(upload_file_name, "rb")
+    read_file_handle_local = read_write_util.HybridFileHandle(upload_file_name, "rb")
+    #read_file_handle_local = read_write_util.GlanceFileRead(fpv)
+    
+    write_file_handle = read_write_util.VMwareHTTPWriteFile(host, dc_name, ds_name, cookies, file_path, file_size)
+    start_transfer(context, read_file_handle_local, file_size, write_file_handle=write_file_handle)
+    
+    #delete img
+    if os.path.exists(img_origin_name):
+        os.remove(img_origin_name)
+    if os.path.exists(img_compressed_name):
+        os.remove(img_compressed_name)
+    if os.path.exists(img_converted_name):
+        os.remove(img_converted_name)
+    
+    #write_file_handle = read_write_util.VMwareHTTPWriteFile(
+    #    host, dc_name, ds_name, cookies, file_path, file_size)
+    #start_transfer(context, read_file_handle, file_size,
+    #               write_file_handle=write_file_handle)
     LOG.debug("Downloaded image file data %(image_ref)s to "
               "%(upload_name)s on the data store "
               "%(data_store_name)s",
@@ -253,6 +292,7 @@ def fetch_image(context, instance, host, dc_name, ds_name, file_path,
               instance=instance)
 
 
+#modified by liuling
 def upload_image(context, image, instance, **kwargs):
     """Upload the snapshotted vm disk file to Glance image server."""
     LOG.debug("Uploading image %s to the Glance image server", image,
@@ -265,23 +305,41 @@ def upload_image(context, image, instance, **kwargs):
                                 kwargs.get("file_path"))
     file_size = read_file_handle.get_size()
     metadata = IMAGE_API.get(context, image)
+    
+    #modified by liuling
+    #Get vmdk to a temp file
+    tmpfile = "/tmp/"+metadata['id']
+    fp = open(tmpfile, "wb")
+    start_transfer(context, read_file_handle, file_size,
+                   write_file_handle=fp)
+
+    if read_file_handle:
+       read_file_handle.close()
+    if fp:
+        fp.close()
+        
+     #conver vmdk to qcow2
+    img_name = metadata['name']
+    convert_command="qemu-img convert -f raw -O qcow2   " + tmpfile + "  /tmp/" + img_name + ".qcow2"
+    result = subprocess.call([convert_command],shell=True)
+    if result == 0:
+        upload_file_name = "/tmp/" + img_name +".qcow2"
+        file_size = os.path.getsize(upload_file_name)
+        
+    else:
+        return
 
     # The properties and other fields that we need to set for the image.
-    image_metadata = {"disk_format": "vmdk",
+    image_metadata = {"disk_format": "qcow2",
                       "is_public": "false",
                       "name": metadata['name'],
                       "status": "active",
                       "container_format": "bare",
                       "size": file_size,
-                      "properties": {"vmware_adaptertype":
-                                            kwargs.get("adapter_type"),
-                                     "vmware_disktype":
-                                            kwargs.get("disk_type"),
-                                     "vmware_ostype": kwargs.get("os_type"),
-                                     "vmware_image_version":
-                                            kwargs.get("image_version"),
+                      "properties": { 
                                      "owner_id": instance['project_id']}}
-    start_transfer(context, read_file_handle, file_size,
+    read_file_handle_local = read_write_util.HybridFileHandle(upload_file_name, "rb")
+    start_transfer(context, read_file_handle_local, file_size,
                    image_id=metadata['id'], image_meta=image_metadata)
     LOG.debug("Uploaded image %s to the Glance image server", image,
               instance=instance)

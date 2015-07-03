@@ -144,6 +144,7 @@ class VMwareVCDriver(driver.ComputeDriver):
 
         # Get the list of clusters to be used
         self._cluster_names = CONF.vmware.cluster_name
+        self._cluster_names =  self._cluster_names[0].split(',')
         self.dict_mors = vm_util.get_all_cluster_refs_by_name(self._session,
                                           self._cluster_names)
         if not self.dict_mors:
@@ -421,9 +422,11 @@ class VMwareVCDriver(driver.ComputeDriver):
         by the service. Otherwise, this method should return
         [hypervisor_hostname].
         """
+        cluster_names_temp = CONF.vmware.cluster_name
+        cluster_names_temp =  cluster_names_temp[0].split(',')
         self.dict_mors = vm_util.get_all_cluster_refs_by_name(
                                 self._session,
-                                CONF.vmware.cluster_name)
+                                cluster_names_temp)
         node_list = []
         self._update_resources()
         for node in self.dict_mors.keys():
@@ -511,10 +514,10 @@ class VMwareVCDriver(driver.ComputeDriver):
         _vmops = self._get_vmops_for_compute_node(instance['node'])
         _vmops.unpause(instance)
 
-    def suspend(self, instance):
+    def suspend(self, context, instance):
         """Suspend the specified instance."""
         _vmops = self._get_vmops_for_compute_node(instance['node'])
-        _vmops.suspend(instance)
+        _vmops.suspend(context,instance)
 
     def resume(self, context, instance, network_info, block_device_info=None):
         """Resume the suspended VM instance."""

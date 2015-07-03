@@ -6,6 +6,8 @@ import sys
 import traceback
 import os
 import paramiko
+import sshutils
+from constants import ScriptFilePath, SysUserInfo
 
 class ELog(object):
 
@@ -166,6 +168,19 @@ def print_log(log_contents, log_level):
         module_logger.info(log_contents)
         print(log_contents)
 
+def remote_open_root_permit_for_hosts(self, ip_list):
+    for ip in ip_list:
+        self.remote_open_root_permit_for_host(ip)
+
+def remote_open_root_permit_for_host(self, ip):
+    ssh = sshutils.SSH(host=ip, user=SysUserInfo.FSP, password=SysUserInfo.FSP_PWD)
+    local_path_execute_sh = os.path.join(get_patches_tool_path(), ScriptFilePath.PATH_EXECUTE_SH)
+    local_path_su_change_sh = os.path.join(get_patches_tool_path(), ScriptFilePath.PATH_SU_CHANGE_SH)
+    ssh.put_file(local_path_execute_sh, ScriptFilePath.PATH_EXECUTE_SH_COPY_TO)
+    ssh.put_file(local_path_su_change_sh, ScriptFilePath.PATH_SU_CHANGE_SH_COPY_TO)
+    ssh.execute('sh %s' % ScriptFilePath.PATH_SU_CHANGE_SH_COPY_TO)
+    ssh.close()
+
 class SSHConnection(object):
     """"""
 
@@ -176,7 +191,6 @@ class SSHConnection(object):
 
         # open SSH Transport stream
         self.transport = paramiko.Transport((host, port))
-
         self.transport.connect(username=username, password=password)
 
     def get_sftp(self):

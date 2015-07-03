@@ -1,28 +1,25 @@
 __author__ = 'nash.xiejun'
-
+import sys
 import os
 import logging
 import traceback
-import sys
 import json
 
 from keystoneclient.v2_0.endpoints import Endpoint
-from utils import print_log, ELog
 from novaclient import client as nova_client
-
 from nova.proxy import clients
 from nova.proxy import compute_context
 
-from install_tool import cps_server, fsutils, fs_system_util
-import log
+# from install_tool import cps_server, fsutils, fs_system_util
 # TODO:
-# import cps_server
-# import fsutils
-# import fs_system_util
+sys.path.append('/usr/bin/install_tool')
+import cps_server
+import fsutils
+import fs_system_util
 
-logger_name = __name__
-logger_module = logging.getLogger(__name__)
-logger = ELog(logger_module)
+import log
+logger_module = log
+logger = log
 
 
 class RefServices(object):
@@ -128,7 +125,7 @@ class RefServices(object):
         try:
             aggregate_result = self.nova.aggregates.create(name, availability_zone)
 
-            print_log('created Aggregate result is : %s ' % aggregate_result, logging.INFO)
+            log.info('created Aggregate result is : %s ' % aggregate_result, logging.INFO)
 
             if aggregate_result.name == name:
                 result = aggregate_result
@@ -141,13 +138,6 @@ class RefServices(object):
 
     def nova_host_list(self):
         result = False
-        # try:
-        #     add_result = self.nova.hosts.
-        #     print_log('Add host<%s> to aggregate<%s>, result : %s ' % (host, aggregate, add_result), logging.INFO)
-        #     result = True
-        # except:
-        #     print_log('Exception when add host<%s> to aggregate<%s>, Exception : %s ' %
-        #               (host, aggregate, traceback.format_exc()), logging.ERROR)
 
         return result
 
@@ -156,10 +146,10 @@ class RefServices(object):
 
         try:
             add_result = self.nova.aggregates.add_host(aggregate, host)
-            print_log('Add host<%s> to aggregate<%s>, result : %s ' % (host, aggregate, add_result), logging.INFO)
+            log.info('Add host<%s> to aggregate<%s>, result : %s ' % (host, aggregate, add_result), logging.INFO)
             result = True
         except:
-            print_log('Exception when add host<%s> to aggregate<%s>, Exception : %s ' %
+            log.error('Exception when add host<%s> to aggregate<%s>, Exception : %s ' %
                       (host, aggregate, traceback.format_exc()), logging.ERROR)
 
         return result
@@ -292,6 +282,10 @@ class RefCPSService(object):
         return cps_server.update_template_params(service_name, template_name, params)
 
     @staticmethod
+    def get_template_params(server, template):
+        return cps_server.get_template_params(server, template)
+
+    @staticmethod
     def cps_commit():
         return cps_server.cps_commit()
 
@@ -334,6 +328,7 @@ class RefCPSService(object):
         """
         return cps_server.get_role_host_list(role)
 
+
 class RefCPSServiceExtent(object):
     @staticmethod
     def list_template_instance(service, template):
@@ -360,6 +355,8 @@ class CPSServiceBusiness(object):
         self.OPT_STOP = 'STOP'
         self.OPT_START = 'START'
         self.STATUS_ACTIVE = 'active'
+        self.DNS = 'dns'
+        self.DNS_SERVER_TEMPLATE = 'dns-server'
 
     def get_nova_proxy_template(self, proxy_number):
         return '-'.join([self.NOVA, proxy_number])
@@ -457,6 +454,83 @@ class CPSServiceBusiness(object):
         self.check_neutron_l3_template(proxy_number)
         self.check_nova_template(proxy_number)
 
+    def get_dns_info(self):
+        """
+        by "cps template-params-show --service dns dns-server", it will get following result:
+        {u'cfg':
+            {
+            u'address': u'/cascading.hybrid.huawei.com/162.3.120.50,
+                        /identity.cascading.hybrid.huawei.com/162.3.120.50,
+                        /image.cascading.hybrid.huawei.com/162.3.120.50,
+                        /az01.shenzhen--fusionsphere.huawei.com/162.3.120.52,
+                        /az11.shenzhen--vcloud.huawei.com/162.3.120.58,
+                        /az31.singapore--aws.vodafone.com/162.3.120.64',
+            u'network': u'[]',
+            u'server': u''
+            }
+        }
+        :return:
+        """
+        dns_info = RefCPSService.get_template_params(self.DNS, self.DNS_SERVER_TEMPLATE)
+        return dns_info
+
+    def get_region_match_ip(self):
+        dns_info = self.get_dns_info()
+        addresses = dns_info['cfg']['address']
+        if not addresses:
+            log.info('address is none in dns info')
+            return {}
+        region_match_ip = {}
+        address_list = addresses.split(',')
+        for address in address_list:
+            if address is not None:
+                tmp_address_content = address.split('/')[1:]
+                if len(tmp_address_content) == 2:
+                    region_match_ip[tmp_address_content[0]] = tmp_address_content[1]
+
+        return region_match_ip
+
+    def get_az_ip(self, az):
+        """
+        if the region is "az01.shenzhen--fusionsphere.huawei.com", the az is "az01"
+        :param az: string, the full name of az, e.g. az01, az11 and so on.
+        :return: array list, array list of ip address, e.g. ['162.3.120.52', '162.3.120.53', ...]
+        """
+        region_match_ip = self.get_region_match_ip()
+        ip_list = []
+        for region, ip in region_match_ip.items():
+            if region.startswith(az):
+                ip_list.append(ip)
+
+        return ip_list
+
+    def get_cascading_ip(self):
+        """
+
+        :return: array list, array list of ip address, e.g. ['162.3.120.52', '162.3.120.53', ...]
+        """
+        return self.get_az_ip('cascading')
+
+    def get_openstack_hosts(self):
+        """
+
+        :return: array list, array list of ip address, e.g. ['162.3.120.52', '162.3.120.53', ...]
+        """
+        return self.get_az_ip('az0')
+
+    def get_vcloud_node_hosts(self):
+        """
+
+        :return: array list, array list of ip address, e.g. ['162.3.120.52', '162.3.120.53', ...]
+        """
+        return self.get_az_ip('az1')
+
+    def get_aws_node_hosts(self):
+        """
+
+        :return: array list, array list of ip address, e.g. ['162.3.120.52', '162.3.120.53', ...]
+        """
+        return self.get_az_ip('az3')
 
 class RefFsUtils(object):
 
@@ -475,3 +549,7 @@ class RefFsSystemUtils(object):
     def get_dc_by_domain(proxy_matched_region):
         domain_url = "".join(['https://service.', proxy_matched_region, ':443'])
         return fs_system_util.get_dc_by_domain(domain_url)
+
+if __name__ == '__main__':
+    cps = CPSServiceBusiness()
+    print(cps.get_dns_info())

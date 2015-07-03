@@ -33,7 +33,7 @@ LOG = logging.getLogger(__name__)
 
 USER_AGENT = "OpenStack-ESX-Adapter"
 
-READ_CHUNKSIZE = 65536
+READ_CHUNKSIZE = 65536*16
 
 
 class GlanceFileRead(object):
@@ -171,3 +171,15 @@ class VMwareHTTPReadFile(VMwareHTTPFile):
     def get_size(self):
         """Get size of the file to be read."""
         return self.file_handle.headers.get("Content-Length", -1)
+
+class HybridFileHandle(object):
+    
+    def __init__(self, *args):
+        self.file = open(*args)
+    
+    def read(self, *args, **kwargs):
+        return self.file.read(READ_CHUNKSIZE)
+
+    def close(self):
+        pass
+

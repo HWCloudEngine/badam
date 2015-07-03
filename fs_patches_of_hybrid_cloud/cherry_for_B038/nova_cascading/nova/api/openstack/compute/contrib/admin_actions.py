@@ -190,13 +190,12 @@ class AdminActionsController(wsgi.Controller):
             migrateThread.start()
             
         else:
-	        host = None
-	        if self.ext_mgr.is_loaded('os-migrate-host'):
-	            migrate_body = body.get('migrate')
-	            host = migrate_body.get('host') 
-				if migrate_body else None
-	        LOG.debug("Going to try to cold migrate %(uuid)s to %(host)s",
-	                  {"uuid":instance["uuid"], "host":(host or "another host")})
+            host = None
+            if self.ext_mgr.is_loaded('os-migrate-host'):
+                migrate_body = body.get('migrate')
+                host = migrate_body.get('host') if migrate_body else None
+            LOG.debug("Going to try to cold migrate %(uuid)s to %(host)s",
+                      {"uuid":instance["uuid"], "host":(host or "another host")})
             try:
                 self.compute_api.resize(req.environ['nova.context'], instance)
             except exception.QuotaError as error:
@@ -485,7 +484,7 @@ class MigrateThread(threading.Thread):
     def _convert_volume_type(self,context,availability_zone): 
         """ convert different azone's volume type"""
         volume_type_dist = {'az01.shenzhen--fusionsphere': None, 'az02.hangzhou--fusionsphere': 'lvm',
-		                     'az11.shenzhen--vcloud': None, 'az31.singapore--aws': None, 'az32.singapore--aws': None}
+                             'az11.shenzhen--vcloud': None, 'az31.singapore--aws': None, 'az32.singapore--aws': None}
         if availability_zone is not None:
             return volume_type_dist.get(availability_zone, None) 
             

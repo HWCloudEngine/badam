@@ -55,7 +55,6 @@ from nova.virt.vmwareapi import vif as vmwarevif
 from nova.virt.vmwareapi import vim_util
 from nova.virt.vmwareapi import vm_util
 from nova.virt.vmwareapi import vmware_images
-from nova.huawei import exception as huawei_exception
 
 
 CONF = cfg.CONF
@@ -435,6 +434,7 @@ class VMwareVMOps(object):
         client_factory = self._session._get_vim().client.factory
         image_info = vmware_images.VMwareImage.from_image(instance.image_ref,
                                                           image_meta)
+        image_info.file_type = 'vmdk'
         vi = self._get_vm_config_info(instance, image_info, instance_name)
 
         # Creates the virtual machine. The virtual machine reference returned
@@ -494,10 +494,10 @@ class VMwareVMOps(object):
             else:
                 self._use_disk_image_as_full_clone(vm_ref, vi)
 
-        if configdrive.required_by(instance):
-            self._configure_config_drive(
-                    instance, vm_ref, vi.dc_info, vi.datastore,
-                    injected_files, admin_password)
+            if configdrive.required_by(instance):
+                self._configure_config_drive(
+                        instance, vm_ref, vi.dc_info, vi.datastore,
+                        injected_files, admin_password)
 
         if power_on:
             vm_util.power_on_instance(self._session, instance, vm_ref=vm_ref)
@@ -1671,157 +1671,3 @@ class VMwareVMOps(object):
                   {'uuid': instance.name, 'host_name': host_name},
                   instance=instance)
         return ctype.ConsoleVNC(**vnc_console)
-
-    def update_vif_pg_info(self, instance, network_info):
-        """
-        update vif port group for a VM instance.
-        """
-        client_factory = self._session._get_vim().client.factory
-
-        vm_ref = vm_util.get_vm_ref(self._session, instance)
-
-        def _get_mac_key_infos():
-            virtual_devs = self._session._call_method(vim_util,
-                                                      "get_dynamic_property",
-                                                      vm_ref, "VirtualMachine",
-                                                      "config.hardware.device")
-            if virtual_devs.__class__.__name__ == "ArrayOfVirtualDevice":
-                virtual_devs = virtual_devs.VirtualDevice
-            mac_key_infos = {}
-            for dev in virtual_devs:
-                if dev.__class__.__name__ == "VirtualE1000":
-                    try:
-                        mac_key_infos[dev.macAddress] = dev.key
-                    except AttributeError:
-                        continue
-            return mac_key_infos
-
-        mac_key_infos = _get_mac_key_infos()
-
-        def _get_vif_infos():
-            vif_infos = []
-            if network_info is None:
-                return vif_infos
-            for vif in network_info:
-                mac_address = vif['address']
-                network_name = vif['network']['bridge'] or \
-                               CONF.vmware.integration_bridge
-                network_ref = vmwarevif.get_network_ref(self._session,
-                                                        self._cluster,
-                                                        vif,
-                                                        utils.is_neutron())
-                vif_infos.append({'network_name': network_name,
-                                  'mac_address': mac_address,
-                                  'network_ref': network_ref,
-                                  'iface_id': vif['id'],
-                                  'vif_model': "e1000"
-                })
-            return vif_infos
-
-        vif_infos = _get_vif_infos()
-
-        # Get the reconfig vm config spec
-        config_spec = vm_util.get_update_vif_spec(client_factory, vif_infos,
-                                                  mac_key_infos)
-
-        def _execute_reconfig_vm():
-            """Reconfigure VM vif port group."""
-            LOG.debug(_("Reconfigure vif port group begin"), instance=instance)
-
-            reconfig_task = self._session._call_method(
-                self._session._get_vim(),
-                "ReconfigVM_Task", vm_ref,
-                spec=config_spec)
-            self._session._wait_for_task(reconfig_task)
-
-            LOG.debug(_("Reconfigure vif port group end"), instance=instance)
-
-        _execute_reconfig_vm()
-
-    def _build_affinity_rules_spec(self, instances, affinity_group_id, type,
-                                   affinity_type):
-        client_factory = self._session._get_vim().client.factory
-        cluster_config_spec = client_factory.create(
-            'ns0:ClusterConfigSpec')
-        cluster_rule_spec = client_factory.create(
-            'ns0:ClusterRuleSpec')
-
-        affinity_type_spec = "ClusterAffinityRuleSpec"
-        if affinity_type == "affinity":
-            LOG.debug("affinity_type is %s", affinity_type)
-            cluster_affinity_rule_spec = client_factory.create(
-            'ns0:ClusterAffinityRuleSpec')
-        else:
-            LOG.debug("affinity_type is %s", affinity_type)
-            affinity_type_spec = "ClusterAntiAffinityRuleSpec"
-            cluster_affinity_rule_spec = client_factory.create(
-            'ns0:ClusterAntiAffinityRuleSpec')
-
-        res_pool_ref = self._session._call_method(vim_util,
-                                                      "get_dynamic_property",
-                                                      self._cluster,
-                                                      "ClusterComputeResource",
-                                                      "configuration")
-        LOG.debug("res_rule_ref is %s", res_pool_ref)
-        config = None
-        AffinityGroupKey = 0
-        if type != "add":
-            for config in res_pool_ref.rule:
-                LOG.debug("config.__class__.__name__ %s", config.__class__.__name__)
-                if config.__class__.__name__ == affinity_type_spec:
-                    if int(config.name) == affinity_group_id:
-                        AffinityGroupKey = int(config.key)
-
-        if type == "remove":
-            cluster_affinity_rule_spec.key = AffinityGroupKey
-            for instance in instances:
-                cluster_affinity_rule_spec.vm.append(instance)
-            cluster_rule_spec.info = cluster_affinity_rule_spec
-            cluster_rule_spec.removeKey = AffinityGroupKey
-        else:
-            cluster_affinity_rule_spec.enabled = True
-            cluster_affinity_rule_spec.name =affinity_group_id
-            if type == "edit":
-                cluster_affinity_rule_spec.key = AffinityGroupKey
-            for instance in instances:
-                cluster_affinity_rule_spec.vm.append(instance)
-            cluster_rule_spec.info = cluster_affinity_rule_spec
-        if type == "remove":
-            cluster_rule_spec.operation = "remove"
-        else:
-            cluster_rule_spec.operation = type
-        LOG.debug("type is %s", type)
-        cluster_config_spec.rulesSpec = [cluster_rule_spec]
-        LOG.debug("cluster_config_spec is %s", cluster_config_spec)
-        return cluster_config_spec
-
-    def reconfigure_affinity_group(self, instances, affinity_group, type):
-        """reconfigure affinity rules for SFR"""
-        vms = []
-        for instance in instances:
-            vm_ref = vm_util.get_vm_ref_from_name(self._session,
-                                                  instance['name'])
-            vms.append(vm_ref)
-
-        config_spec = self._build_affinity_rules_spec(vms,
-                                                    affinity_group.id, type, affinity_group.type)
-
-        affinity_add_task = self._session._call_method(
-                self._session._get_vim(),
-                "ReconfigureCluster_Task", self._cluster,
-                spec=config_spec, modify=True)
-
-        task_info = None
-        while True:
-            task_info = self._session._call_method(vim_util,
-                                               "get_dynamic_property",
-                                               affinity_add_task, "Task", "info")
-            if task_info.state in ['queued', 'running']:
-                time.sleep(2)
-                continue
-            break
-
-        if task_info.state == "error":
-            raise huawei_exception.AffinityGroupError(
-                affinitygroup_id=affinity_group.name, action="reconfigure rule",
-                reason="reconfigure affinity rule task failed")

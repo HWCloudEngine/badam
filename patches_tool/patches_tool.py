@@ -9,8 +9,8 @@ from utils import CommonCMD, ELog, SSHConnection
 from config import CONF
 from constants import PatchFilePath, CfgFilePath
 from services import RefCPSService, CPSServiceBusiness
+from dispatch import DispatchPatchTool
 import log
-log.init('patches_tool')
 logger = log
 print_logger = log
 
@@ -130,6 +130,10 @@ class PatchesTool(object):
             else:
                 print('Region of ip <%s> is None, can not patch for this proxy' % proxy_host_ip)
 
+    def patch_for_cascaded_nodes(self):
+        cps = CPSServiceBusiness()
+
+
     def _get_path_by_region(self, region):
         absolute_cascading_patch_path = os.path.sep.join([utils.get_patches_tool_path(), PatchFilePath.PATCH_FOR_CASCADING])
         absolute_aws_proxy_patch_path = os.path.sep.join([utils.get_patches_tool_path(), PatchFilePath.PATCH_FOR_AWS_PROXY])
@@ -161,6 +165,7 @@ class PatchesTool(object):
             cps_service.check_all_service_template_status(proxy)
 
 if __name__ == '__main__':
+    log.init('patches_tool')
     print('Start to patch hybrid cloud patch...')
     patches_tool = PatchesTool()
     patches_tool.patch_for_cascading_and_proxy_node()
@@ -168,5 +173,8 @@ if __name__ == '__main__':
     patches_tool.verify_services_status()
     print('Finish to patch hybrid cloud patch.')
     print('Patched backup file is in DIR - %s' % CONF.DEFAULT.openstack_bak_path)
+
+    dispatch_patch_tool = DispatchPatchTool()
+    dispatch_patch_tool.remote_patch_for_cascaded_nodes()
 
 
