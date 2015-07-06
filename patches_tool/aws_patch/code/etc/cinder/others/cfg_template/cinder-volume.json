@@ -45,8 +45,8 @@
             "region":"ap-southeast-1",
             "provider_image_conversion_dir":"/opt/HUAWEI/image",
             "cgw_certificate":"/home/cgw.pem",
-            "access_key_id":"AKIAIPBTQO4PAMG5O62Q",
-            "secret_key":"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",
+            "access_key_id":"",
+            "secret_key":"",
             "cgw_username":"ec2-user",
             "cgw_host_id":"i-c124700d"
         },

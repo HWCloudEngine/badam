@@ -12,7 +12,8 @@ from services import CPSServiceBusiness
 class DispatchPatchTool(object):
 
     def __init__(self):
-        self.filter_for_dispatch = ['.py', '.sh', '.ini', '.pem', '.txt', '.vmx', '.json']
+        # self.filter_for_dispatch = ['.py', '.sh', '.ini', '.pem', '.txt', '.vmx', '.json']
+        self.filter_for_dispatch = []
         self.cps_service_business = CPSServiceBusiness()
         self.aws_cascaded_node_hosts = self.cps_service_business.get_aws_node_hosts()
         self.vcloud_cascaded_node_hosts = self.cps_service_business.get_vcloud_node_hosts()

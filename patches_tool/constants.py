@@ -40,10 +40,11 @@ class ScriptFilePath(object):
     AWS_PATCH = 'aws_patch'
     VCLOUD_PATCH = 'vcloud_patch'
     CONFIG_PY = 'config.py'
+    BIN = 'bin'
     PATH_EXECUTE_SH = os.path.join(SCRIPT, EXECUTE_SH)
     PATH_SU_CHANGE_SH = os.path.join(SCRIPT, PATH_EXECUTE_SH)
-    PATH_EXECUTE_SH_COPY_TO = os.path.join(HOME, FSP, SCRIPT, EXECUTE_SH)
-    PATH_SU_CHANGE_SH_COPY_TO = os.path.join(HOME, FSP, SCRIPT, SU_CHANGE_SH)
+    PATH_EXECUTE_SH_COPY_TO = os.path.join(HOME, FSP, BIN, EXECUTE_SH)
+    PATH_SU_CHANGE_SH_COPY_TO = os.path.join(HOME, FSP, BIN, SU_CHANGE_SH)
 
     PATH_REMOTE_AWS_PATCH_FILE = os.path.join(HOME, FSP, PATCHES_TOOL, AWS_PATCH, PATCH_FILE)
     PATH_REMOTE_VCLOUD_PATCH_FILE = os.path.join(HOME, FSP, PATCHES_TOOL, VCLOUD_PATCH, PATCH_FILE)

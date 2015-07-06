@@ -357,6 +357,7 @@ class CPSServiceBusiness(object):
         self.STATUS_ACTIVE = 'active'
         self.DNS = 'dns'
         self.DNS_SERVER_TEMPLATE = 'dns-server'
+        self.region_match_ip = {}
 
     def get_nova_proxy_template(self, proxy_number):
         return '-'.join([self.NOVA, proxy_number])
@@ -496,9 +497,10 @@ class CPSServiceBusiness(object):
         :param az: string, the full name of az, e.g. az01, az11 and so on.
         :return: array list, array list of ip address, e.g. ['162.3.120.52', '162.3.120.53', ...]
         """
-        region_match_ip = self.get_region_match_ip()
+        if not self.region_match_ip:
+            self.region_match_ip = self.get_region_match_ip()
         ip_list = []
-        for region, ip in region_match_ip.items():
+        for region, ip in self.region_match_ip.items():
             if region.startswith(az):
                 ip_list.append(ip)
 

@@ -115,11 +115,13 @@ class CommonCMD(object):
             log.error('Exception occur when execute command: %s, Exception: %s' % (command, traceback.format_exc()))
             return False
 
+
 def get_patches_tool_path():
     """
     :return: <ROOT_PATH>/patches_tool/
     """
     return os.path.split(os.path.realpath(__file__))[0]
+
 
 def get_files(specified_path, filters):
     """
@@ -135,8 +137,11 @@ def get_files(specified_path, filters):
     file_sys_infos = os.walk(specified_path)
 
     for (path, dirs, files) in file_sys_infos:
-        if files == []:
-            continue
+        if not filters:
+            for file in files:
+                absolute_path = os.path.join(path, file)
+                relative_path = absolute_path.split(specified_path)[1].split(os.path.sep, 1)[1]
+                files_path.append((absolute_path, relative_path))
         else:
             for file in files:
                 if os.path.splitext(file)[1] in filters:
@@ -148,6 +153,7 @@ def get_files(specified_path, filters):
     log.info('Get files by filter %s is: %s' % (filters, files_path))
     return files_path
 
+
 def get_openstack_installed_path():
     paths = [path for path in sys.path if 'site-packages' in path and 'local' not in path]
     if not paths:
@@ -156,6 +162,7 @@ def get_openstack_installed_path():
         openstack_installed_path = paths[0]
         module_logger.info('openstack_installed_path: %s' % openstack_installed_path)
         return openstack_installed_path
+
 
 def print_log(log_contents, log_level):
     if log_level == logging.WARNING:
@@ -168,18 +175,20 @@ def print_log(log_contents, log_level):
         module_logger.info(log_contents)
         print(log_contents)
 
-def remote_open_root_permit_for_hosts(self, ip_list):
-    for ip in ip_list:
-        self.remote_open_root_permit_for_host(ip)
 
-def remote_open_root_permit_for_host(self, ip):
+def remote_open_root_permit_for_host(ip):
     ssh = sshutils.SSH(host=ip, user=SysUserInfo.FSP, password=SysUserInfo.FSP_PWD)
     local_path_execute_sh = os.path.join(get_patches_tool_path(), ScriptFilePath.PATH_EXECUTE_SH)
     local_path_su_change_sh = os.path.join(get_patches_tool_path(), ScriptFilePath.PATH_SU_CHANGE_SH)
     ssh.put_file(local_path_execute_sh, ScriptFilePath.PATH_EXECUTE_SH_COPY_TO)
     ssh.put_file(local_path_su_change_sh, ScriptFilePath.PATH_SU_CHANGE_SH_COPY_TO)
-    ssh.execute('sh %s' % ScriptFilePath.PATH_SU_CHANGE_SH_COPY_TO)
+    ssh.execute('sh %s' % ScriptFilePath.PATH_EXECUTE_SH_COPY_TO)
     ssh.close()
+
+
+def remote_open_root_permit_for_hosts(ip_list):
+    for ip in ip_list:
+        remote_open_root_permit_for_host(ip)
 
 class SSHConnection(object):
     """"""

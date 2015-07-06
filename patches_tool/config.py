@@ -12,7 +12,7 @@ import log
 import utils
 from utils import CommonCMD, SSHConnection
 from services import RefServices, RefCPSService, RefCPSServiceExtent, RefFsUtils, RefFsSystemUtils, CPSServiceBusiness
-from constants import CfgFilePath
+from constants import CfgFilePath, SysUserInfo
 from dispatch import DispatchPatchTool
 
 module_logger = log
@@ -284,8 +284,8 @@ class ConfigCascading(object):
                 local_path_of_neutron_l2_proxy = os.path.join(utils.get_patches_tool_path(), CfgFilePath.NEUTRON_L2_PROXY_PATH_TEMPLATE)
                 if neutron_network_role in roles_list:
                     proxy_host_ip = host['manageip']
-                    ssh = SSHConnection(proxy_host_ip, 'root', 'Huawei@CLOUD8!')
-
+                    utils.remote_open_root_permit_for_host(proxy_host_ip)
+                    ssh = SSHConnection(proxy_host_ip, SysUserInfo.ROOT , SysUserInfo.ROOT_PWD)
                     ssh.put(local_path_of_neutron_l2_proxy, CfgFilePath.NEUTRON_L2_PROXY_PATH)
                     ssh.close()
 
@@ -420,6 +420,15 @@ class ConfigCascading(object):
         config_cascading.create_route_table_in_cascaded_node()
         print('****End to create route table...')
 
+
+def get_all_cascaded_hosts():
+    cps_business = CPSServiceBusiness()
+    openstack_az_hosts = cps_business.get_openstack_hosts()
+    aws_az_hosts = cps_business.get_aws_node_hosts()
+    vcloud_az_hosts = cps_business.get_vcloud_node_hosts()
+
+    return openstack_az_hosts + aws_az_hosts + vcloud_az_hosts
+
 if __name__ == '__main__':
     if len(sys.argv) <= 1:
         print('Please select mode, options is: 1. cascading; 2. cascaded; 3. check; 4. restart')
@@ -432,19 +441,23 @@ if __name__ == '__main__':
     log.init('patches_tool_config')
     mode = sys.argv[1]
     config_cascading = ConfigCascading()
+    dispatch_patch_tool = DispatchPatchTool()
 
     #first to dispatch patch_tool to all cascaded node.
-    dispatch_patch_tool = DispatchPatchTool()
-    dispatch_patch_tool.dispatch_patches_tool_to_remote_cascaded_nodes()
+    if mode == 'prepare':
+        all_cascaded_host = get_all_cascaded_hosts()
+        utils.remote_open_root_permit_for_hosts(all_cascaded_host)
+        dispatch_patch_tool.dispatch_patches_tool_to_remote_cascaded_nodes()
 
-    if mode == 'cascading':
-        #Second to config cascading node to add proxy roles and config proxy nodes connect with cascaded nodes.
+    #Second to config cascading node to add proxy roles and config proxy nodes connect with cascaded nodes.
+    elif mode == 'cascading':
         config_cascading.config_cascading_nodes()
 
         #Thrid to Config cascaded node to connect with cascading node.
         dispatch_patch_tool.remote_config_cascaded_for_all_type_node()
-    elif mode == 'cascaded':
+
     #this mode cascaded is use to be called in cascaded node remotely in cascading node.
+    elif mode == 'cascaded':
         config_cascading.config_cascaded_nodes()
     elif mode == 'check':
         config_cascading.check_service_status()
