@@ -1,44 +1,26 @@
 __author__ = 'nash.xiejun'
 
 import subprocess
-import logging
 import sys
 import traceback
 import os
+import tarfile
+
 import paramiko
+import log
+
 import sshutils
 from constants import ScriptFilePath, SysUserInfo
-
-class ELog(object):
-
-    def __init__(self, module_logger):
-        self.module_logger = module_logger
-
-    def info(self, log_contents, *args):
-        self.module_logger.info(log_contents, *args)
-        print(log_contents)
-
-    def error(self, log_contents, *args):
-        self.module_logger.error(log_contents, *args)
-        print(log_contents)
-
-    def warning(self, log_contents, *args):
-        self.module_logger.warning(log_contents, *args)
-        print(log_contents)
-
-module_logger = logging.getLogger(__name__)
-logger = ELog(module_logger)
-log = logging.getLogger(__name__)
 
 class CommonCMD(object):
 
     @staticmethod
     def reboot():
         try:
-            logger.warning('Start boot system.')
+            log.warning('Start boot system.')
             subprocess.call("reboot")
         except:
-            logger.error('Exception occured when reboot system, EXCEPTION: %s', sys.exc_traceback)
+            log.error('Exception occured when reboot system, EXCEPTION: %s', sys.exc_traceback)
 
     @staticmethod
     def excute_cmd(cmd, *args):
@@ -73,16 +55,16 @@ class CommonCMD(object):
     def cp_f_to(source, str_destiny):
         try:
             cmd = 'cp -f %s %s' % (source, str_destiny)
-            logger.info('copy CMD: %s' % cmd)
+            log.info('copy CMD: %s' % cmd)
             result = subprocess.call(cmd.split(' '))
             if result == 0:
-                logger.info('SUCCESS to copy %s to %s' % (source, str_destiny))
+                log.info('SUCCESS to copy %s to %s' % (source, str_destiny))
                 return True
             else:
-                logger.info('FAIL to copy %s to %s, result is: %s' % (source, str_destiny, result))
+                log.info('FAIL to copy %s to %s, result is: %s' % (source, str_destiny, result))
                 return False
         except:
-            logger.error('Exception occur when copy %s to %s, Exception: %s' %(source, str_destiny, traceback.format_exc()))
+            log.error('Exception occur when copy %s to %s, Exception: %s' %(source, str_destiny, traceback.format_exc()))
             return False
 
     @staticmethod
@@ -160,20 +142,8 @@ def get_openstack_installed_path():
         return None
     else:
         openstack_installed_path = paths[0]
-        module_logger.info('openstack_installed_path: %s' % openstack_installed_path)
+        log.info('openstack_installed_path: %s' % openstack_installed_path)
         return openstack_installed_path
-
-
-def print_log(log_contents, log_level):
-    if log_level == logging.WARNING:
-        module_logger.warning(log_contents)
-        print(log_contents)
-    elif log_level == logging.ERROR:
-        module_logger.error(log_contents)
-        print(log_contents)
-    else:
-        module_logger.info(log_contents)
-        print(log_contents)
 
 
 def remote_open_root_permit_for_host(ip):
@@ -189,6 +159,12 @@ def remote_open_root_permit_for_host(ip):
 def remote_open_root_permit_for_hosts(ip_list):
     for ip in ip_list:
         remote_open_root_permit_for_host(ip)
+
+
+def make_tarfile(output_filename, source_dir):
+    tar = tarfile.open(output_filename, "w:gz")
+    tar.add(source_dir, arcname=os.path.basename(source_dir))
+    tar.close()
 
 class SSHConnection(object):
     """"""
@@ -243,4 +219,8 @@ if __name__ == '__main__':
     # patch_path = 'hybrid_tricrile/nova/nova_patch/'
     # print get_hybrid_cloud_badam_parent_path()
     # print os.path.normpath(os.path.join(get_hybrid_cloud_badam_parent_path(), patch_path))
+    log.init('patches_tool_config')
+    from constants import SysPath
+    patches_tool_path = get_patches_tool_path()
+    make_tarfile(SysPath.PATCHES_TOOL_TAR_GZ, patches_tool_path)
     print os.path.split(os.path.realpath(__file__))[0]

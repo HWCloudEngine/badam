@@ -534,6 +534,13 @@ class CPSServiceBusiness(object):
         """
         return self.get_az_ip('az3')
 
+    def get_os_region_name(self):
+        region = RefCPSService.get_local_domain()
+        os_region_name = '.'.join([RefFsSystemUtils.get_az_by_domain(region),
+                                   RefFsSystemUtils.get_dc_by_domain(region)])
+
+        return os_region_name
+
 class RefFsUtils(object):
 
     @staticmethod

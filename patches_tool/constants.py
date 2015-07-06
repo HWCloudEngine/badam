@@ -1,6 +1,5 @@
 __author__ = 'nash.xiejun'
 import os
-import utils
 
 class FileName(object):
     PATCHES_TOOL_CONFIG_FILE = 'patches_tool_config.ini'
@@ -30,7 +29,7 @@ class PatchFilePath(object):
     PATCH_FOR_VCLOUD_PROXY = os.path.sep.join([HYBRID_CLOUD_PATCHES, VCLOUD_PROXY])
 
 class ScriptFilePath(object):
-    SCRIPT = 'script'
+    SCRIPT = 'scripts'
     EXECUTE_SH = 'execute.sh'
     SU_CHANGE_SH = 'su_change.sh'
     HOME = ''.join([os.path.sep, 'home'])
@@ -42,7 +41,7 @@ class ScriptFilePath(object):
     CONFIG_PY = 'config.py'
     BIN = 'bin'
     PATH_EXECUTE_SH = os.path.join(SCRIPT, EXECUTE_SH)
-    PATH_SU_CHANGE_SH = os.path.join(SCRIPT, PATH_EXECUTE_SH)
+    PATH_SU_CHANGE_SH = os.path.join(SCRIPT, SU_CHANGE_SH)
     PATH_EXECUTE_SH_COPY_TO = os.path.join(HOME, FSP, BIN, EXECUTE_SH)
     PATH_SU_CHANGE_SH_COPY_TO = os.path.join(HOME, FSP, BIN, SU_CHANGE_SH)
 
@@ -56,6 +55,7 @@ class SysPath(object):
     FSP = 'fsp'
     HOME_FSP = os.path.join(HOME, FSP)
     PATCHES_TOOL = 'patches_tool'
+    PATCHES_TOOL_TAR_GZ = 'patches_tool.tar.gz'
     PATH_PATCHES_TOOL =os.path.join(HOME_FSP, PATCHES_TOOL)
 
 

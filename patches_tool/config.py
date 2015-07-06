@@ -46,6 +46,21 @@ CONF.register_group(default_group)
 CONF.register_opts(default_opts, default_group)
 
 
+env_group = cfg.OptGroup(name='ENV',
+                               title='environment for openstack')
+env_opts = [
+    cfg.StrOpt('OS_AUTH_URL', default="https://identity.cascading.hybrid.huawei.com:443/identity/v2.0"),
+    cfg.StrOpt('OS_USERNAME', default="cloud_admin"),
+    cfg.StrOpt('OS_TENANT_NAME', default="admin"),
+    cfg.StrOpt('NOVA_ENDPOINT_TYPE', default="publicURL"),
+    cfg.StrOpt('CINDER_ENDPOINT_TYPE', default="publicURL"),
+    cfg.StrOpt('OS_ENDPOINT_TYPE', default="publicURL"),
+    cfg.StrOpt('OS_VOLUME_API_VERSION', default="2"),
+    cfg.StrOpt('OS_PASSWORD', default=""),
+]
+CONF.register_group(env_group)
+CONF.register_opts(env_opts, env_group)
+
 absolute_config_file = os.path.join(utils.get_patches_tool_path(), FileName.PATCHES_TOOL_CONFIG_FILE)
 CONF(['--config-file=%s' % absolute_config_file])
 
@@ -429,6 +444,22 @@ def get_all_cascaded_hosts():
 
     return openstack_az_hosts + aws_az_hosts + vcloud_az_hosts
 
+def get_os_region_name():
+    cps_business = CPSServiceBusiness()
+    return cps_business.get_os_region_name()
+
+def export_env():
+    os_region_name = get_os_region_name()
+    os.environ['OS_AUTH_URL'] = CONF.ENV.OS_AUTH_URL
+    os.environ['OS_USERNAME'] = CONF.ENV.OS_USERNAME
+    os.environ['OS_TENANT_NAME'] = CONF.ENV.OS_TENANT_NAME
+    os.environ['OS_REGION_NAME'] = os_region_name
+    os.environ['NOVA_ENDPOINT_TYPE'] = CONF.ENV.NOVA_ENDPOINT_TYPE
+    os.environ['CINDER_ENDPOINT_TYPE'] = CONF.ENV.CINDER_ENDPOINT_TYPE
+    os.environ['OS_ENDPOINT_TYPE'] = CONF.ENV.OS_ENDPOINT_TYPE
+    os.environ['OS_VOLUME_API_VERSION'] = CONF.ENV.OS_VOLUME_API_VERSION
+    os.environ['OS_PASSWORD'] = CONF.ENV.OS_PASSWORD
+
 if __name__ == '__main__':
     if len(sys.argv) <= 1:
         print('Please select mode, options is: 1. cascading; 2. cascaded; 3. check; 4. restart')
@@ -439,7 +470,9 @@ if __name__ == '__main__':
         exit(0)
     print('Start to config cascading....')
     log.init('patches_tool_config')
+    log.info('Start to config cascading....')
     mode = sys.argv[1]
+    export_env()
     config_cascading = ConfigCascading()
     dispatch_patch_tool = DispatchPatchTool()
 
@@ -465,3 +498,4 @@ if __name__ == '__main__':
         config_cascading.restart_services()
 
     print('End to config')
+    log.info('End to config')

@@ -5,9 +5,9 @@ import traceback
 import stat
 
 import utils
-from utils import CommonCMD, ELog, SSHConnection
+from utils import CommonCMD, SSHConnection
 from config import CONF
-from constants import PatchFilePath, CfgFilePath
+from constants import PatchFilePath
 from services import RefCPSService, CPSServiceBusiness
 from dispatch import DispatchPatchTool
 import log
