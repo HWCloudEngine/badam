@@ -157,8 +157,12 @@ def remote_open_root_permit_for_host(ip):
 
 
 def remote_open_root_permit_for_hosts(ip_list):
+    log.info('Start to remote open root permit for hosts: %s' % ip_list)
+    print('Start to remote open root permit for hosts: %s' % ip_list)
     for ip in ip_list:
         remote_open_root_permit_for_host(ip)
+    print('Finish to remote open root permit for hosts: %s' % ip_list)
+    log.info('Finish to remote open root permit for hosts: %s' % ip_list)
 
 
 def make_tarfile(output_filename, source_dir):
@@ -214,13 +218,3 @@ class SSHConnection(object):
             self.sftp.close()
             self.sftp_open = False
         self.transport.close()
-
-if __name__ == '__main__':
-    # patch_path = 'hybrid_tricrile/nova/nova_patch/'
-    # print get_hybrid_cloud_badam_parent_path()
-    # print os.path.normpath(os.path.join(get_hybrid_cloud_badam_parent_path(), patch_path))
-    log.init('patches_tool_config')
-    from constants import SysPath
-    patches_tool_path = get_patches_tool_path()
-    make_tarfile(SysPath.PATCHES_TOOL_TAR_GZ, patches_tool_path)
-    print os.path.split(os.path.realpath(__file__))[0]

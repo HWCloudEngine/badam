@@ -4,23 +4,21 @@
 __author__ = 'luqitao'
 
 import os
-from os.path import join
 import shlex
 import signal
 from eventlet.green import subprocess
 from eventlet import greenthread
 
-from install_tool import fs_log_util
+import log as LOG
 
 CURRENT_PATH = os.path.dirname(os.path.abspath(__file__))
-LOG_FILE = join(CURRENT_PATH, 'hybrid_patches_tool.log')
-LOG = fs_log_util.localLog.get_logger(LOG_FILE)
 
 
 def _subprocess_setup():
     # Python installs a SIGPIPE handler by default. This is usually not what
     # non-Python subprocesses expect.
     signal.signal(signal.SIGPIPE, signal.SIG_DFL)
+
 
 def subprocess_popen(args, stdin=None, stdout=None, stderr=None, shell=False,
                      env=None):
@@ -51,6 +49,7 @@ def create_process(cmd, root_helper=None, addl_env=None):
                                  env=env)
 
     return obj, cmd
+
 
 def execute(cmd, root_helper=None, process_input=None, addl_env=None,
             check_exit_code=True, return_stderr=False, log_fail_as_error=True,

@@ -7,22 +7,18 @@ import sys
 import os
 import json
 import socket
-from os.path import join
 from oslo.config import cfg
+import traceback
 
+import log as LOG
 CURRENT_PATH = os.path.dirname(os.path.abspath(__file__))
-LOG_FILE = "hybrid_patches_tool"
 
 sys.path.extend([CURRENT_PATH + "/../../", "/usr/bin/"])
 
 import utils
 from install_tool import cps_server
-from install_tool import fs_log_util
 from patches_tool.services import RefServices, RefCPSServiceExtent, RefCPSService, RefFsSystemUtils
-
-LOG = fs_log_util.localLog.get_logger(LOG_FILE)
-LOG.init(LOG_FILE)
-
+from patches_tool import config
 
 PROVIDER_API_NETWORK='provider_api_network_id'
 PROVIDER_TUNNEL_NETWORK='provider_tunnel_network_id'
@@ -260,8 +256,29 @@ def create_aggregate_in_cascaded_node():
             ref_service.nova_aggregate_add_host(os_region_name, host_id)
 
 if __name__ == '__main__':
-    replace_all_config()
-    patch_hybridcloud_files()
-    create_aggregate_in_cascaded_node()
-    config_cascaded_az()
+    LOG.init('patches_tool_config')
+    LOG.info('START to patch for aws...')
+    config.export_env()
+
+    try:
+        replace_all_config()
+    except Exception, e:
+        LOG.error('Excepton when replace_all_config, Exception: %s' % traceback.format_exc())
+
+    LOG.info('Start to patch for hybrid-cloud files')
+    try:
+        patch_hybridcloud_files()
+    except Exception, e:
+        LOG.error('Excepton when patch for hybrid-cloud files, Exception: %s' % traceback.format_exc())
+
+    try:
+        LOG.info('Start to create ag in aws node.')
+        create_aggregate_in_cascaded_node()
+
+        LOG.info('Start to config cascaded az.')
+        config_cascaded_az()
+    except Exception, e:
+        LOG.error('Excepton when create cascaded az, Exception: %s' % traceback.format_exc())
+
+    LOG.info('SUCCESS to patch for aws.')
 

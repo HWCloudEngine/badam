@@ -104,23 +104,20 @@ class ConfigCascading(object):
     def add_role_for_proxies(self):
         for proxy_number in self.proxies:
             print('****  Start to add role for Proxy:<<%s>>  ****' % proxy_number)
+            log.info('****  Start to add role for Proxy:<<%s>>  ****' % proxy_number)
             role_nova_proxy = self._get_nova_role_name(proxy_number)
             role_neutron_proxy = self._get_neutron_role_name(proxy_number)
             role_cinder_proxy = self._get_cinder_role_name(proxy_number)
             host_proxy_in = self.proxy_match_host[proxy_number]
 
-            print('--------start to add role for nova proxy')
             self._add_proxy_role(host_proxy_in, role_nova_proxy)
             # self._check_service_proxy_status('nova', self._get_nova_template_name(proxy_number), 'fault')
-            print('--------end to add role for nova proxy')
-            print('--------start to add role for neutron proxy')
             self._add_proxy_role(host_proxy_in, role_neutron_proxy)
             # self._check_service_proxy_status('neutron', self._get_neutron_l2_template_name(proxy_number), 'fault')
-            print('--------end to add role for neutron proxy')
-            print('--------start to add role for cinder proxy')
             self._add_proxy_role(host_proxy_in, role_cinder_proxy)
             # self._check_service_proxy_status('cinder', self._get_cinder_template_name(proxy_number), 'fault')
-            print('--------end to add role for cinder proxy')
+
+            log.info('****  End to add role for Proxy:<<%s>>  ****' % proxy_number)
             print('****  End to add role for Proxy:<<%s>>  ****' % proxy_number)
 
     def _add_proxy_role(self, host, role_name):
@@ -135,8 +132,10 @@ class ConfigCascading(object):
         :param role_name:
         :return:
         """
+        log.info('Start to add proxy role in host: %s, for role: %s' % (host, role_name))
         add_result = RefCPSService.role_host_add(role_name, [host])
         RefCPSService.cps_commit()
+        log.info('Finish to add proxy role in host: %s, for role: %s' % (host, role_name))
 
     def _get_nova_role_name(self, proxy_number):
         service_nova = 'compute'
@@ -170,15 +169,20 @@ class ConfigCascading(object):
 
     def config_proxy_to_connect_with_cascaded(self):
         for proxy in self.proxies:
+            log.info('Start to config cascading connection for proxy: %s' % proxy)
+            print('Start to config cascading connection for proxy: %s' % proxy)
             self._config_service_for_nova_proxy(proxy)
             self._config_for_neutron_l2_proxy(proxy)
             self._config_for_neutron_l3_proxy(proxy)
             self._config_cinder_proxy(proxy)
+            print('Finish to config cascading connection for proxy: %s' % proxy)
+            log.info('Finish to config cascading connection for proxy: %s' % proxy)
 
     def config_big_l2_layer_in_proxy_node(self):
-        host_list = RefCPSService.host_list()
         self._config_big_l2_layer_in_proxy(self.current_proxy)
-        self._replace_neutron_l2_proxy_json(host_list)
+        host_list = RefCPSService.host_list()
+        if host_list is not None:
+            self._replace_neutron_l2_proxy_json(host_list)
 
     def config_big_l2_layer_in_cascaded_node(self):
         self._config_big_l2_layer_in_cascaded_node()
@@ -291,7 +295,8 @@ class ConfigCascading(object):
         TODO: to get host ip of proxies, and scp config file of json to these proxies.
         :return:
         """
-
+        log.info('Start to replace neutron l2 proxy json in proxy nodes..')
+        print('Start to replace neutron l2 proxy json..')
         for proxy in self.proxies:
             neutron_network_role = self._get_neutron_role_name(proxy)
             for host in host_info['hosts']:
@@ -299,10 +304,19 @@ class ConfigCascading(object):
                 local_path_of_neutron_l2_proxy = os.path.join(utils.get_patches_tool_path(), CfgFilePath.NEUTRON_L2_PROXY_PATH_TEMPLATE)
                 if neutron_network_role in roles_list:
                     proxy_host_ip = host['manageip']
-                    utils.remote_open_root_permit_for_host(proxy_host_ip)
-                    ssh = SSHConnection(proxy_host_ip, SysUserInfo.ROOT , SysUserInfo.ROOT_PWD)
-                    ssh.put(local_path_of_neutron_l2_proxy, CfgFilePath.NEUTRON_L2_PROXY_PATH)
-                    ssh.close()
+                    log.info('Start remote copy neutron l2 proxy json to host: %s' % proxy_host_ip)
+                    try:
+                        utils.remote_open_root_permit_for_host(proxy_host_ip)
+                        ssh = SSHConnection(proxy_host_ip, SysUserInfo.ROOT , SysUserInfo.ROOT_PWD)
+                        ssh.put(local_path_of_neutron_l2_proxy, CfgFilePath.NEUTRON_L2_PROXY_PATH)
+                        ssh.close()
+                    except Exception, e:
+                        log.error('Exception when remote copy neutron l2 proxy json to host: %s' % proxy_host_ip)
+                        log.error('Exception: %s' % traceback.format_exc())
+
+                    log.info('Finish remote copy neutron l2 proxy json to host: %s' % proxy_host_ip)
+        print('Finish to replace neutron l2 proxy json..')
+        log.info('Finish to replace neutron l2 proxy json  in proxy nodes..')
 
     def _get_proxy_region_and_host_region_name(self, proxy_matched_region):
         return '.'.join([RefFsSystemUtils.get_az_by_domain(proxy_matched_region),

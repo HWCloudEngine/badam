@@ -6,8 +6,8 @@ __author__ = 'luqitao'
 import sys
 import os
 import json
-from os.path import join
 import socket
+import traceback
 
 CURRENT_PATH = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE = "hybrid_patches_tool"
@@ -16,11 +16,10 @@ sys.path.extend([CURRENT_PATH + "/../../", "/usr/bin/"])
 
 import utils
 from install_tool import cps_server
-from install_tool import fs_log_util
 from patches_tool.services import RefServices, RefCPSServiceExtent, RefCPSService, RefFsSystemUtils
+from patches_tool import config
+import log as LOG
 
-LOG = fs_log_util.localLog.get_logger(LOG_FILE)
-LOG.init(LOG_FILE)
 
 def restart_component(service_name, template_name):
     """Stop an component, then start it."""
@@ -70,7 +69,9 @@ def replace_config(conf_file_path, src_key, new_key, new_value):
 def replace_all_config():
     """Replace vcloud info for nova-compute and cinder-volume"""
 
-    with open("vcloud_config.json", "r") as fp:
+    file_vcloud_config_json = os.path.join(CURRENT_PATH, "vcloud_config.json")
+
+    with open(file_vcloud_config_json, "r") as fp:
         vcloud_config_content = json.load(fp)
 
     cur_path = os.path.split(os.path.realpath(__file__))[0]
@@ -94,6 +95,7 @@ def patch_hybridcloud_files():
     utils.execute(['dos2unix', os.path.join(CURRENT_PATH, 'install.sh')])
     utils.execute(['sh', os.path.join(CURRENT_PATH, 'install.sh')])
 
+
 def create_aggregate_in_cascaded_node():
     """
     nova aggregate-create az31.singapore--aws az31.singapore--aws
@@ -112,8 +114,23 @@ def create_aggregate_in_cascaded_node():
             ref_service.nova_aggregate_add_host(os_region_name, host_id)
 
 if __name__ == '__main__':
-    replace_all_config()
-    patch_hybridcloud_files()
-    create_aggregate_in_cascaded_node()
-    config_cascaded_az()
+    LOG.init('patches_tool_config')
+    LOG.info('START to patch for VCLOUD...')
+    config.export_env()
+    try:
+        LOG.info('start to replace all config file.')
+        replace_all_config()
+
+        LOG.info('Start to patch hyrbid-cloud files')
+        patch_hybridcloud_files()
+
+        LOG.info('Start to create ag in cascaded node')
+        create_aggregate_in_cascaded_node()
+
+        LOG.info('Start to config cascaded az')
+        config_cascaded_az()
+    except Exception, e:
+        LOG.error('Exception when patch for vcloud cascaded. Exception: %s' % traceback.format_exc())
+
+    LOG.info('END to patch for VCLOUD...')
 

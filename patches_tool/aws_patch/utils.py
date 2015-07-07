@@ -4,17 +4,14 @@
 __author__ = 'luqitao'
 
 import os
-from os.path import join
 import shlex
 import signal
 from eventlet.green import subprocess
 from eventlet import greenthread
 
-from install_tool import fs_log_util
+import log as LOG
 
 CURRENT_PATH = os.path.dirname(os.path.abspath(__file__))
-LOG_FILE = join(CURRENT_PATH, 'hybrid_patches_tool.log')
-LOG = fs_log_util.localLog.get_logger(LOG_FILE)
 
 
 def _subprocess_setup():

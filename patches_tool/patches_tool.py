@@ -1,11 +1,12 @@
 __author__ = 'nash.xiejun'
 import os
-import logging
 import traceback
 import stat
+import time
 
 import utils
 from utils import CommonCMD, SSHConnection
+import config
 from config import CONF
 from constants import PatchFilePath
 from services import RefCPSService, CPSServiceBusiness
@@ -92,7 +93,7 @@ class PatchInstaller(InstallerBase):
                 # installed_path is full install path,
                 # for example: /usr/lib/python2.7/dist-packages/nova/conductor/manager.py
                 openstack_installed_file = os.path.join(self.openstack_install_path, relative_path)
-                self.bak_patched_file(openstack_installed_file, relative_path)
+                # self.bak_patched_file(openstack_installed_file, relative_path)
 
                 copy_dir = os.path.dirname(openstack_installed_file)
 
@@ -154,10 +155,13 @@ class PatchesTool(object):
         return
 
     def restart_service(self):
+        log.info('Start to restart openstack service for nova/neutron/cinder.')
         cps_service = CPSServiceBusiness()
         for proxy in self.proxy_match_region.keys():
             cps_service.stop_all(proxy)
             cps_service.start_all(proxy)
+        log.info('Finish to restart openstack service for nova/neutron/cinder.')
+
 
     def verify_services_status(self):
         cps_service = CPSServiceBusiness()
@@ -165,16 +169,43 @@ class PatchesTool(object):
             cps_service.check_all_service_template_status(proxy)
 
 if __name__ == '__main__':
-    log.init('patches_tool')
-    print('Start to patch hybrid cloud patch...')
+    log.init('patches_tool_config')
+    config.export_env()
+
+
+    print('Start to patch Hybrid-Cloud patches in cascading node and proxy nodes...')
+    log.info('Start to patch Hybrid-Cloud patches in cascading node and proxy nodes...')
+
     patches_tool = PatchesTool()
     patches_tool.patch_for_cascading_and_proxy_node()
-    patches_tool.restart_service()
-    patches_tool.verify_services_status()
-    print('Finish to patch hybrid cloud patch.')
-    print('Patched backup file is in DIR - %s' % CONF.DEFAULT.openstack_bak_path)
+
+    print('Finish to patch Hybrid-Cloud patches in cascading node and proxy nodes...')
+    log.info('Finish to patch Hybrid-Cloud patches in cascading node and proxy nodes...')
+
+
+    print('Start to patch Hybrid-Cloud patches in cascaded nodes...')
+    log.info('Start to patch Hybrid-Cloud patches in cascaded nodes...')
 
     dispatch_patch_tool = DispatchPatchTool()
     dispatch_patch_tool.remote_patch_for_cascaded_nodes()
+
+    print('Finish to patch Hybrid-Cloud patches in cascaded nodes...')
+    log.info('Finish to patch Hybrid-Cloud patches in cascaded nodes...')
+
+
+    print('Start to restart openstack service for nova/neutron/cinder.')
+    patches_tool.restart_service()
+    print('Finish to restart openstack service for nova/neutron/cinder.')
+
+    print('Start to verify services status')
+    time.sleep(15)
+    patches_tool.verify_services_status()
+    print('Finish to verify services status')
+
+    print('**** If found some status of some services are fault, ****')
+    print('**** Please check it after more then 10 seconds, it is because the service is restarting... ###')
+    print('*** To check by using this commands: # python config.py check')
+
+    print('Finish to patch Hybrid-Cloud patches in cascaded nodes...')
 
 
