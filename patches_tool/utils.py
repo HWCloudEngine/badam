@@ -152,7 +152,10 @@ def remote_open_root_permit_for_host(ip):
     local_path_su_change_sh = os.path.join(get_patches_tool_path(), ScriptFilePath.PATH_SU_CHANGE_SH)
     ssh.put_file(local_path_execute_sh, ScriptFilePath.PATH_EXECUTE_SH_COPY_TO)
     ssh.put_file(local_path_su_change_sh, ScriptFilePath.PATH_SU_CHANGE_SH_COPY_TO)
-    ssh.execute('sh %s' % ScriptFilePath.PATH_EXECUTE_SH_COPY_TO)
+    log.info('ScriptFilePath.PATH_EXECUTE_SH_COPY_TO: %s' % ScriptFilePath.PATH_EXECUTE_SH_COPY_TO)
+    cmd = 'sh %s' % ScriptFilePath.PATH_EXECUTE_SH_COPY_TO
+    log.info('cmd %s' % cmd)
+    ssh.run(cmd)
     ssh.close()
 
 
@@ -160,7 +163,11 @@ def remote_open_root_permit_for_hosts(ip_list):
     log.info('Start to remote open root permit for hosts: %s' % ip_list)
     print('Start to remote open root permit for hosts: %s' % ip_list)
     for ip in ip_list:
-        remote_open_root_permit_for_host(ip)
+        try:
+            remote_open_root_permit_for_host(ip)
+        except Exception, e:
+            log.error('Exception: open remote root permit for host %s' % ip)
+            log.error('Exception: %s' % traceback.format_exc())
     print('Finish to remote open root permit for hosts: %s' % ip_list)
     log.info('Finish to remote open root permit for hosts: %s' % ip_list)
 

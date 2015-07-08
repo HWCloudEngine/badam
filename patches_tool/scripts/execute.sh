@@ -1,4 +1,3 @@
 #!/bin/bash
-
-chmod +x su_change.sh
-./su_change.sh
+chmod +x /home/fsp/bin/su_change.sh
+/home/fsp/bin/su_change.sh
