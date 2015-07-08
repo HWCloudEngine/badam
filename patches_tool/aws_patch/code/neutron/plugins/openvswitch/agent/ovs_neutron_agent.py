@@ -48,6 +48,7 @@ from neutron import context
 from neutron.extensions import qos
 from neutron.openstack.common import log as logging
 from neutron.openstack.common import loopingcall
+from neutron.openstack.common import uuidutils
 from neutron.plugins.common import constants as p_const
 from neutron.plugins.openvswitch.common import config  # noqa
 from neutron.plugins.openvswitch.common import constants
@@ -1017,10 +1018,11 @@ class OVSNeutronAgent(n_rpc.RpcCallback,
                                       physical_network, segmentation_id)
         lvm = self.local_vlan_map[net_uuid]
         lvm.vif_ports[port.vif_id] = port
-
-        self.dvr_agent.bind_port_to_dvr(port, network_type, fixed_ips,
-                                        device_owner,
-                                        local_vlan_id=lvm.vlan)
+        
+        if uuidutils.is_uuid_like(port.vif_id):
+            self.dvr_agent.bind_port_to_dvr(port, network_type, fixed_ips,
+                                            device_owner,
+                                            local_vlan_id=lvm.vlan)
 
         self.int_br.set_other_config(port.port_name,
                                      net_uuid,
@@ -1491,7 +1493,7 @@ class OVSNeutronAgent(n_rpc.RpcCallback,
 
     def _bound_dhcp_port(self, vif_port, network_type, physical_network, device_owner, fixed_ips):
         """distributed dhcp:drop l2 packets to dhcp port mac"""
-        if self.is_distributed_dhcp and device_owner == q_const.DEVICE_OWNER_DHCP:
+        if cfg.CONF.dhcp_distributed and device_owner == q_const.DEVICE_OWNER_DHCP:
             dhcp_port = dict()
             dhcp_port['network_type'] = network_type
             dhcp_port['mac_address'] = vif_port.vif_mac
@@ -1887,7 +1889,7 @@ class OVSNeutronAgent(n_rpc.RpcCallback,
 
     def _unbound_dhcp_port(self, device):
         # distributed dhcp:drop l2 packets to dhcp port mac
-        if self.is_distributed_dhcp and self.dhcp_ports.has_key(device):
+        if cfg.CONF.dhcp_distributed and self.dhcp_ports.has_key(device):
             LOG.debug('_unbound_dhcp_port_device:%s', device)
             dhcp_port = self.dhcp_ports[device]
             network_type = dhcp_port['network_type']
@@ -2131,22 +2133,26 @@ class OVSNeutronAgent(n_rpc.RpcCallback,
                 polling_manager.force_polling()
             else:
                 sleep_time = 0
-            ovs_restarted = self.check_ovs_restart()
-            if ovs_restarted:
-                self.setup_integration_br()
-                self.setup_physical_bridges(self.bridge_mappings)
-                if self.enable_tunneling:
-                    self.reset_tunnel_br()
-                    self.setup_tunnel_br()
-                    tunnel_sync = True
-                    if self.enable_distributed_routing:
-                        self.dvr_agent.reset_ovs_parameters(self.int_br,
-                                                     self.tun_br,
-                                                     self.patch_int_ofport,
-                                                     self.patch_tun_ofport)
-                        self.dvr_agent.reset_dvr_parameters()
-                        self.dvr_agent.setup_dvr_flows_on_integ_tun_br()
-                self.reset_ancillary_bridges()
+            try:
+                ovs_restarted = self.check_ovs_restart()
+                if ovs_restarted:
+                    self.setup_integration_br()
+                    self.setup_physical_bridges(self.bridge_mappings)
+                    if self.enable_tunneling:
+                        self.reset_tunnel_br()
+                        self.setup_tunnel_br()
+                        tunnel_sync = True
+                        if self.enable_distributed_routing:
+                            self.dvr_agent.reset_ovs_parameters(self.int_br,
+                                                         self.tun_br,
+                                                         self.patch_int_ofport,
+                                                         self.patch_tun_ofport)
+                            self.dvr_agent.reset_dvr_parameters()
+                            self.dvr_agent.setup_dvr_flows_on_integ_tun_br()
+                    self.reset_ancillary_bridges()
+            except Exception:
+                LOG.exception(_("Error while reloading ovs-bridges"))
+                sync = True
             # Notify the plugin of tunnel IP
             if self.enable_tunneling and tunnel_sync:
                 LOG.info(_("Agent tunnel out of sync with plugin!"))

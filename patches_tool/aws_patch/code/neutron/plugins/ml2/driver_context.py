@@ -98,7 +98,8 @@ class PortContext(MechanismDriverContext, api.PortContext):
     @property
     def status(self):
         if self._port['device_owner'] == constants.DEVICE_OWNER_DVR_INTERFACE:
-            return self._binding.status
+            if self._binding.get('status'):
+                return self._binding.status
 
         return self._port['status']
 
@@ -128,7 +129,8 @@ class PortContext(MechanismDriverContext, api.PortContext):
     @property
     def host(self):
         if self._port['device_owner'] == constants.DEVICE_OWNER_DVR_INTERFACE:
-            return self._binding.host
+            if self._binding.get('host'):
+                return self._binding.host
 
         return self._port.get(portbindings.HOST_ID)
 

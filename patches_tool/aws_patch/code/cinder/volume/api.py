@@ -808,6 +808,10 @@ class API(base.Base):
     def delete_volume_metadata(self, context, volume, key):
         """Delete the given metadata item from a volume."""
         self.db.volume_metadata_delete(context, volume['id'], key)
+        try:
+            self.volume_rpcapi.delete_volume_metadata(context, volume, key)
+        except Exception:
+            pass
 
     def _check_metadata_properties(self, metadata=None):
         if not metadata:
@@ -848,6 +852,10 @@ class API(base.Base):
                                                  _metadata, delete)
 
         # TODO(jdg): Implement an RPC call for drivers that may use this info
+        try:
+            self.volume_rpcapi.update_volume_metadata(context, volume, _metadata, delete)
+        except Exception:
+            pass
 
         return db_meta
 

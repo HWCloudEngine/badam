@@ -34,10 +34,6 @@ ec2api_opts = [
                default='ap-southeast-1',
                help='the region for connection to EC2  '),
 
-    cfg.StrOpt('driver_type',
-               default='ec2_ap_southeast',
-               help='the type for driver  '),
-
     cfg.StrOpt('provider_image_conversion_dir',
                default='/tmp/ec2/',
                help='volume convert to image dir'),
@@ -121,9 +117,38 @@ class AwsEc2VolumeDriver(driver.VolumeDriver):
         model_update = {'provider_location': provider_location.id}
         return model_update
 
+    def get_snapshot_from_provider_id(self, snapshot_id, snapshot_location_flag):
+        if snapshot_location_flag:
+            provider_snapshot = self.adpter.list_snapshots(snapshot_ids=[snapshot_id])
+            return provider_snapshot
+        else:
+            provider_snapshot = self.adpter.list_snapshots(ex_filters={'tag:hybrid_cloud_cascading_snapshot_id': snapshot_id})
+            return provider_snapshot
+
     def create_volume_from_snapshot(self, volume, snapshot):
         """Create a volume from a snapshot."""
-        pass
+        if snapshot.get('provider_location') is not None:
+            snapshot_id = snapshot.get('provider_location')
+            snapshot_location_flag = True
+        else:
+            snapshot_id = snapshot.get('id')
+            snapshot_location_flag = False
+        provider_snapshot = self.get_snapshot_from_provider_id(snapshot_id, snapshot_location_flag)
+        if not provider_snapshot:
+            raise exception.SnapshotNotFound(snapshot_id=snapshot_id)
+        location = self.adpter.get_location(self.configuration.availability_zone)
+        size = volume.get('size')
+        name = volume.get('name')
+        provider_volume = self.adpter.create_volume(size, name, location=location, snapshot=provider_snapshot[0])
+        LOG.info("create volume: %s; provider_volume: %s " % (volume['id'], provider_volume.id))
+        create_tags_func = getattr(self.adpter, 'ex_create_tags')
+        if create_tags_func:
+            create_tags_func(provider_volume, {'hybrid_cloud_volume_id': volume['id']})
+        ctx = cinder.context.get_admin_context()
+        if ctx:
+            self.db.volume_metadata_update(ctx, volume['id'], {'provider_volume_id': provider_volume.id}, False)
+        model_update = {'provider_location': provider_volume.id}
+        return model_update
 
     def create_cloned_volume(self, volume, src_vref):
         """Create a clone of the specified volume."""
@@ -134,12 +159,12 @@ class AwsEc2VolumeDriver(driver.VolumeDriver):
         pass
 
     def _get_provider_volumeid_from_volume(self, volume):
-        if not volume.get('provider_location',None):
+        if not volume['provider_location']:
             ctx = cinder.context.get_admin_context()
             metadata = self.db.volume_metadata_get(ctx, volume['id'])
-            return metadata.get('provider_volume_id',None)
+            return metadata['provider_volume_id']
         else:
-            return volume.get('provider_location',None)
+            return volume['provider_location']
 
     def delete_volume(self, volume):
         """Delete a volume."""
@@ -150,7 +175,7 @@ class AwsEc2VolumeDriver(driver.VolumeDriver):
 
         provider_volumes = self.adpter.list_volumes(ex_volume_ids=[provider_volume_id])
         if not provider_volumes:
-            LOG.error('provider_volume  is not found')
+            LOG.error('provider_volume %s is not found' % volume['provider_location'].id)
             return
             #raise exception.VolumeNotFound(volume_id=volume['id'])
         elif len(provider_volumes) > 1:
@@ -187,26 +212,23 @@ class AwsEc2VolumeDriver(driver.VolumeDriver):
 
     def delete_snapshot(self, snapshot):
         """Delete a snapshot."""
-
-        provider_snapshot_id = snapshot.get('provider_location',None)
-        if not provider_snapshot_id:
-            LOG.warning('snapshot has no provider_location')
-            return
-
-        provider_snapshots = self.adpter.list_snapshots(snapshot_ids=[provider_snapshot_id])
+        provider_snapshots = self.adpter.list_snapshots()
         if not provider_snapshots:
-            LOG.warning('provider_snapshot %s is not found' % provider_snapshot_id)
+            LOG.error('provider_snapshot %s is not found' % snapshot['provider_location'])
             return
-
-        provider_snapshot = provider_snapshots[0]
-
-        delete_ret = self.adpter.destroy_volume_snapshot(provider_snapshot)
+            #raise exception.SnapshotNotFound(snapshot_id=snapshot['id'])
+        for provider_snapshot in provider_snapshots:
+            if provider_snapshot.id == snapshot['provider_location']:
+                target_snapshot = provider_snapshot
+        if not target_snapshot:
+            raise exception.SnapshotNotFound(snapshot['id'])
+        delete_ret = self.adpter.destroy_volume_snapshot(target_snapshot)
         LOG.info("deleted snapshot return%d" % delete_ret)
 
     def get_volume_stats(self, refresh=False):
         """Get volume stats."""
-        #volume_backend_name = self.adpter.get_volume_backend_name()
-        data = {'volume_backend_name': 'AMAZONEC2',
+        backend_name = self.configuration.safe_get('volume_backend_name')
+        data = {'volume_backend_name': backend_name,
                 'storage_protocol': 'LSI Logic SCSI',
                 'driver_version': self.VERSION,
                 'vendor_name': 'Huawei',
@@ -244,8 +266,6 @@ class AwsEc2VolumeDriver(driver.VolumeDriver):
         if not os.path.exists(self.configuration.provider_image_conversion_dir):
             fileutils.ensure_tree(self.configuration.provider_image_conversion_dir)
         provider_volume_id = self._get_provider_volumeid_from_volume(volume)
-        #import pdb
-        #pdb.set_trace()
         task_ret = self.adpter.export_volume(provider_volume_id,
                                              self.configuration.provider_image_conversion_dir,
                                              str(image_meta['id']),

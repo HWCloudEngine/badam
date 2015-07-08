@@ -66,7 +66,9 @@ from cinderclient.v2 import client as cinder_client
 from ceilometerclient import client as ceilometerclient
 from cinderclient import exceptions as cinder_exception
 from cinder.volume import rpcapi as volume_rpcapi
+from cinder.openstack.common import threadgroup
 
+import eventlet
 from eventlet.greenpool import GreenPool
 from keystoneclient.v2_0 import client as kc
 from keystoneclient import exceptions as keystone_exception
@@ -193,7 +195,6 @@ def locked_snapshot_operation(f):
         return lso_inner2(inst, context, snapshot_id, **kwargs)
     return lso_inner1
 
-
 class CinderProxy(manager.SchedulerDependentManager):
 
     """Manages attachable block storage devices."""
@@ -206,8 +207,8 @@ class CinderProxy(manager.SchedulerDependentManager):
     SNAPSHOT_NAME_MAX_LEN = 255
     SNAPSHOT_UUID_MAX_LEN = 36
     TIME_SHIFT_TOLERANCE = 30
-    VOLUME_MIDDLE_STATUS = ['creating', 'deleting', 'downloading', 'uploading', 'backing-up',
-                            'restoring-backup', 'extending', 'retyping']
+    VOLUME_MIDDLE_STATUS = ['creating', 'downloading', 'deleting', 'uploading', 'extending',
+                            'retyping']
     SNAPSHOT_MIDDLE_STATUS = ['creating', 'deleting']
 
     def __init__(self, service_name=None, *args, **kwargs):
@@ -225,40 +226,68 @@ class CinderProxy(manager.SchedulerDependentManager):
         self._change_since_time = timeutils.isotime(_change_since_time)
         self.volumes_mapping_cache = {'volumes': {}, 'snapshots': {}}
         self.volume_type_cache = []
+        self.sync_volumes = []
+        self.tg = threadgroup.ThreadGroup()
         self.tenant_id = self._get_tenant_id()
         self.image_service = glance.get_default_image_service()
         self.adminCinderClient = self._get_cascaded_cinder_client()
         self._init_volume_mapping_cache()
 
-    def _init_volume_mapping_cache(self):
-        start_time = datetime.datetime.now()
-        try:
-            ctxt = context.get_admin_context()
-            opts = {"all_tenants": True}
-            db_volumes = self.db.volume_get_all_by_host(ctxt, self.host)
-            middle_volumes = list()
-            for volume in db_volumes:
-                v_id = volume.get('id')
-                v_status = volume.get('status')
-                if v_status in CinderProxy.VOLUME_MIDDLE_STATUS:
-                    middle_volumes.append(volume)
-                    continue
-                meta = dict((item['key'], item['value']) for item in volume['volume_metadata'])
-                mapping_uuid = meta.get('mapping_uuid', None)
-                if v_id and mapping_uuid:
-                    self.volumes_mapping_cache['volumes'][v_id] = mapping_uuid
-            LOG.info("during init, volumes_mapping_cache is: %s" % self.volumes_mapping_cache['volumes'])
-            try:
-                self._update_middle_status_volume(ctxt, middle_volumes)
-            except Exception as ex:
-                LOG.error(_("Failed init volumes mapping cache %s" % str(ex)))
-                LOG.error(traceback.format_exc())
+    def splice_hosts(self):
+        ctxt = context.get_admin_context()
+        vol_types = self.db.volume_type_get_all(ctxt)
+        backend_names = list([self.host, "%s#LVM_ISCSI" % self.host])
+        for v_t in vol_types.values():
+            extra_specs = v_t.get('extra_specs', None)
+            if not extra_specs:
+                continue
+            b_n = extra_specs.get('volume_backend_name', None)
+            avail_zone = extra_specs.get('availability-zone', None)
+            if b_n and avail_zone and avail_zone == cfg.CONF.storage_availability_zone:
+                backend_names.append("%s#%s" % (self.host, b_n))
+        LOG.info('splice host get: %s' % backend_names)
+        return list(set(backend_names))
 
-            db_snapshots = self.volume_api.get_all_snapshots(ctxt, search_opts=opts)
-            middle_snapshots = list()
-            for snapshot in db_snapshots:
-                s_id = snapshot.get('id')
-                s_status = snapshot.get('status')
+    def classify_db_volumes(self, ctxt):
+        middle_volumes = list()
+        marker = None
+        while True:
+            search_opt = {
+                "marker": marker,
+                "sort_key": "id",
+                "sort_dir": "desc",
+                "filters": {'host': self.splice_hosts()},
+                "limit": CONF.pagination_limit * 100
+            }
+            try:
+                volumes = self.db.volume_get_all(ctxt, **search_opt)
+                if volumes:
+                    marker = volumes[-1].get('id')
+                else:
+                    break
+                for vol in volumes:
+                    v_id, v_status = vol.get('id'), vol.get('status')
+                    if v_status in CinderProxy.VOLUME_MIDDLE_STATUS:
+                        middle_volumes.append(vol)
+                        continue
+                    meta = dict((item['key'], item['value']) for item in vol['volume_metadata']
+                                if item['key'] == 'mapping_uuid')
+                    mapping_uuid = meta.get('mapping_uuid', None)
+                    if mapping_uuid:
+                        self.volumes_mapping_cache['volumes'][v_id] = mapping_uuid
+            except Exception as ec:
+                LOG.error("try get db volumes and init volume cache error: %s, %s" %
+                          (str(ec), traceback.format_exc()))
+                break
+        return middle_volumes
+
+    def classify_db_snapshot(self, ctxt):
+        opts = {"all_tenants": True}
+        db_snapshots = self.volume_api.get_all_snapshots(ctxt, search_opts=opts)
+        middle_snapshots = list()
+        for snapshot in db_snapshots:
+            try:
+                s_id, s_status = snapshot.get('id'), snapshot.get('status')
                 if s_status in CinderProxy.SNAPSHOT_MIDDLE_STATUS:
                     middle_snapshots.append(snapshot)
                     continue
@@ -266,46 +295,135 @@ class CinderProxy(manager.SchedulerDependentManager):
                 mapping_uuid = meta.get('mapping_uuid', None)
                 if s_id and mapping_uuid:
                     self.volumes_mapping_cache['snapshots'][s_id] = mapping_uuid
+            except Exception as ec:
+                LOG.error("try get db snapshots and init cache error: %s, %s" %
+                          (str(ec), traceback.format_exc()))
+                continue
+        return middle_snapshots
+
+    def _init_volume_mapping_cache(self):
+        start_time = datetime.datetime.now()
+        try:
+            ctxt = context.get_admin_context()
+            middle_volumes = self.classify_db_volumes(ctxt)
+            self._update_middle_status_volume(ctxt, middle_volumes)
+
+            middle_snapshots = self.classify_db_snapshot(ctxt)
             self._update_middle_status_snapshot(ctxt, middle_snapshots)
             end_time = datetime.datetime.now()
-            LOG.info("during init, snapshot_mapping_cache is: %s" % self.volumes_mapping_cache['snapshots'])
             LOG.info("use %s seconds to init mapping_cache" % (end_time - start_time).seconds)
         except Exception as ex:
-            LOG.error(_("Failed init volumes mapping cache"))
-            LOG.exception(ex)
+            LOG.error(_("Failed init mapping cache: %s" % str(ex)))
 
-    def _update_middle_status_volume(self, context, middle_volumes):
+    def update_creating_volume(self, ctxt, cascaded_volume, cascading_id, cascading_volume_types):
+        if not cascaded_volume:
+            return
+        v_status = getattr(cascaded_volume, '_info').get('status')
+        v_bootable = getattr(cascaded_volume, '_info').get('bootable').lower()
+        v_type_name = getattr(cascaded_volume, '_info').get('volume_type')
+        new_v_type_id = None
+        new_type_info = cascading_volume_types.get(v_type_name, None)
+        if new_type_info:
+            new_v_type_id = new_type_info.get('id', None)
+        need_update_values = {
+            'status': v_status,
+            'size': getattr(cascaded_volume, '_info').get('size'),
+            'attach_status': 'detached',
+            'attach_time': None,
+            'volume_type_id': new_v_type_id
+        }
+        if v_status == 'available':
+            if v_bootable == 'true':
+                need_update_values['bootable'] = '1'
+                image_metadata = getattr(cascaded_volume, '_info').get('volume_image_metadata')
+                if image_metadata is not None:
+                    self.db.volume_glance_metadata_delete_by_volume(ctxt, cascading_id)
+                    for key, value in image_metadata.items():
+                        self.db.volume_glance_metadata_create(ctxt, cascading_id, key, value)
+            self.db.volume_update(ctxt, cascading_id, need_update_values)
+        attachments = self.db.volume_attachment_get_used_by_volume_id(ctxt, cascading_id)
+        for attach in attachments:
+            self.db.volume_detached(ctxt, cascading_id, attach.get('id'))
+        metadata = getattr(cascaded_volume, '_info').get('metadata')
+        self._update_volume_metada(ctxt, cascading_id, metadata)
+
+    def update_downloading_volume(self, ctxt, cascaded_volume, cascading_id, cascading_volume_types):
+        return self.update_creating_volume(ctxt, cascaded_volume, cascading_id, cascading_volume_types)
+
+    def _update_middle_status_volume(self, ctxt, middle_volumes):
         LOG.info("start update %s middle status volumes" % len(middle_volumes))
         start_time = datetime.datetime.now()
         if not middle_volumes:
             LOG.info("none middle status volume was found in cascading.")
             return
         stable_status = ['error', 'available']
-        handle_volume_status_mapping = {'creating': stable_status,
-                                        'deleting': stable_status.extend(['error_deleting']),
-                                        'downloading': stable_status,
-                                        'uploading': stable_status,
-                                        'extending': stable_status.extend(['error_extending']),
-                                        'retyping': stable_status}
+        volume_status_mapping = {'creating': stable_status,
+                                 'downloading': stable_status,
+                                 'deleting': stable_status + ['error_deleting'],
+                                 'uploading': stable_status,
+                                 'extending': stable_status + ['error_extending'],
+                                 'retyping': stable_status}
+        cascading_volume_types = self.db.volume_type_get_all(ctxt)
+        if len(middle_volumes) < 100:
+            LOG.info("init middle volumes one_by_one.")
+            for vol in middle_volumes:
+                try:
+                    cascading_id, cascading_status = vol.get('id'), vol.get('status')
+                    meta = dict((item['key'], item['value']) for item in vol['volume_metadata'])
+                    mapping_uuid = meta.get('mapping_uuid', None)
+                    if not mapping_uuid:
+                        LOG.info("find volume %s not has mapping_uuid" % cascading_id)
+                        continue
+                    cascaded_vol = self.adminCinderClient.volumes.get(mapping_uuid)
+                    if cascaded_vol:
+                        cascaded_status = getattr(cascaded_vol, '_info').get('status')
+                        cascaded_size = getattr(cascaded_vol, '_info').get('size')
+                    else:
+                        continue
+                    LOG.error("update middle status volume %s, %s, %s, %s" % (cascading_id, cascading_status,
+                                                                              mapping_uuid, cascaded_status))
+                    if cascaded_status in volume_status_mapping[cascading_status]:
+                        try:
+                            if cascading_status == 'creating' or cascading_status == 'downloading':
+                                self.update_creating_volume(ctxt, cascaded_vol, cascading_id,
+                                                            cascading_volume_types)
+                            else:
+                                self.db.volume_update(ctxt, cascading_id, {'status': cascaded_status,
+                                                                           'size': cascaded_size})
+                        except Exception as ine:
+                            LOG.error("during update volume status, inner occur error: %s, %s" %
+                                      (str(ine), traceback.format_exc()))
+                        else:
+                            self.volumes_mapping_cache['volumes'][cascading_id] = mapping_uuid
+                except Exception as ie:
+                    LOG.error("during update volume status, inner occur error: %s, %s" %
+                              (str(ie), traceback.format_exc()))
+                    continue
+            end_time = datetime.datetime.now()
+            LOG.error("update middle status volume cost: %s seconds" % (end_time - start_time).seconds)
+            return
+
+        LOG.info("batch init middle volumes.")
         marker = None
+        limit = CONF.pagination_limit * 10 if CONF.pagination_limit * 20 < 1000 else 1000
         while True:
-            sopt = {"all_tenants": True,
-                    "marker": marker,
-                    "limit": 1000}
+            search_opt = {"all_tenants": True,
+                          "marker": marker,
+                          "sort_key": 'name',
+                          "sort_dir": 'desc',
+                          "limit": limit}
             try:
-                cascaded_volumes = self.adminCinderClient.volumes.list(search_opts=sopt)
+                cascaded_volumes = self.adminCinderClient.volumes.list(search_opts=search_opt)
                 if cascaded_volumes:
                     marker = getattr(cascaded_volumes[-1], '_info')['id']
                 else:
                     break
-                cascaded_volumes = dict((getattr(v, '_info')['id'], getattr(v, '_info')['status'])
-                                        for v in cascaded_volumes)
+                cascaded_volumes = dict((getattr(v, '_info')['id'], v) for v in cascaded_volumes)
                 LOG.info("get cascaded_volumes: %s %s" % (len(middle_volumes), cascaded_volumes))
                 for vol in middle_volumes:
                     try:
-                        cascading_id = vol.get('id')
-                        cascading_status = vol.get('status')
-                        if cascading_status not in handle_volume_status_mapping.keys():
+                        cascading_id, cascading_status = vol.get('id'), vol.get('status')
+                        if cascading_status not in volume_status_mapping.keys():
                             LOG.info("find cascading volume %s status not in middle status" % cascading_id)
                             continue
 
@@ -314,11 +432,28 @@ class CinderProxy(manager.SchedulerDependentManager):
                         if not mapping_uuid:
                             LOG.info("find cascading volume %s not has mapping_uuid" % cascading_id)
                             continue
-
-                        cascaded_status = cascaded_volumes.get(mapping_uuid, None)
-                        if cascaded_status and cascaded_status in handle_volume_status_mapping[cascading_status]:
-                            self.db.volume_update(context, cascading_id, {'status': cascaded_status})
-                            self.volumes_mapping_cache['volumes'][cascading_id] = mapping_uuid
+                        cascaded_vol = cascaded_volumes.get(mapping_uuid)
+                        if cascaded_vol:
+                            cascaded_status = getattr(cascaded_vol, '_info')['status']
+                            cascaded_size = getattr(cascaded_vol, '_info').get('size')
+                        else:
+                            continue
+                        LOG.error("update middle status volume %s, %s, %s, %s" % (cascading_id, cascading_status,
+                                                                                  mapping_uuid, cascaded_status))
+                        if cascaded_status and cascaded_status in volume_status_mapping[cascading_status]:
+                            try:
+                                if cascading_status in ['creating', 'downloading']:
+                                    return self.update_creating_volume(ctxt, cascaded_vol, cascading_id,
+                                                                       cascading_volume_types)
+                                else:
+                                    self.db.volume_update(ctxt, cascading_id, {'status': cascaded_status,
+                                                                               'size': cascaded_size})
+                            except Exception as ine:
+                                LOG.error("during update volume status, inner occur error: %s, %s" %
+                                          (str(ine), traceback.format_exc()))
+                                continue
+                            else:
+                                self.volumes_mapping_cache['volumes'][cascading_id] = mapping_uuid
                     except Exception as ie:
                         LOG.error("during update volume status, inner occur error: %s, %s" %
                                   (str(ie), traceback.format_exc()))
@@ -326,18 +461,18 @@ class CinderProxy(manager.SchedulerDependentManager):
             except Exception as e:
                 LOG.error("during update volume status, outer occur error: %s, %s" %
                           (str(e), traceback.format_exc()))
-                continue
+                break
         end_time = datetime.datetime.now()
         LOG.error("update middle status volume cost: %s seconds" % (end_time - start_time).seconds)
 
-    def _update_middle_status_snapshot(self, context, middle_snapshots):
+    def _update_middle_status_snapshot(self, ctxt, middle_snapshots):
         LOG.info("start update middle status snapshots.")
         if not middle_snapshots:
             LOG.info("none middle status snapshot was found in cascading.")
             return
         stable_status = ['error', 'available']
         handle_snapshot_status_mapping = {'creating': stable_status,
-                                          'deleting': stable_status.extend(['error_deleting'])}
+                                          'deleting': stable_status + ['error_deleting']}
         sopt = {"all_tenants": True}
         cascaded_snapshots = self.adminCinderClient.volume_snapshots.list(search_opts=sopt)
         cascaded_snapshots = dict((getattr(v, '_info')['id'], getattr(v, '_info')['status'])
@@ -357,7 +492,7 @@ class CinderProxy(manager.SchedulerDependentManager):
 
                     cascaded_status = cascaded_snapshots.get(mapping_uuid, None)
                     if cascaded_status and cascaded_status in handle_snapshot_status_mapping[cascading_status]:
-                        self.db.snapshot_update(context, cascading_id, {'status': cascaded_status})
+                        self.db.snapshot_update(ctxt, cascading_id, {'status': cascaded_status})
                         self.volumes_mapping_cache['snapshots'][cascading_id] = mapping_uuid
                 except Exception as e:
                     LOG.error("during update snapshot status, occur error: %s, %s" %
@@ -366,6 +501,102 @@ class CinderProxy(manager.SchedulerDependentManager):
         except Exception as e:
                 LOG.error("during update volume status, outer occur error: %s, %s" %
                           (str(e), traceback.format_exc()))
+
+    def _sync_volume_status(self, context):
+        LOG.info('_sync_volume_snapshots_status begin')
+        
+        host = self.splice_hosts()
+        mid_status = ('creating', 'downloading', 'uploading', 'retyping')
+        
+        filters = {
+        "host": host,
+        'status': mid_status
+        }
+        marker = None
+        limit = None
+        sort_key = 'updated_at'
+        sort_dir = 'asc'
+        
+        sync_volumes = self.db.volume_get_all(context, marker, limit, sort_key,
+                                             sort_dir, filters=filters)
+
+        if not sync_volumes:
+            LOG.info('_sync_volume_status: sync_volumes is None')
+            return 60
+        
+        change_time = timeutils.utcnow() - datetime.timedelta(seconds=60)
+
+        for temp_volume in sync_volumes:
+
+            try:
+                LOG.info('_sync_volume_status: %s', dict(temp_volume))
+                volume_id = temp_volume.get('id')
+                volume = self.db.volume_get(context, volume_id)
+                status  = volume.get('status')
+                
+                if status not in mid_status:
+                    LOG.info('volume_id[%s] status[%s] not mid status', volume_id, status)
+                    continue
+                
+                metadata = dict((item['key'], item['value']) for item in volume['volume_metadata'])
+                updated_time = volume.get('updated_at')
+                mapping_uuid = metadata.get('mapping_uuid', {})
+                
+                LOG.info('volume_id[%s] mapping_uuid[%s] status[%s]', volume_id, mapping_uuid, status)
+                LOG.info('_sync_volume_status: %s %s', change_time, updated_time)
+                if updated_time > change_time:
+                    LOG.info('_sync_volume_status: %s neednot sync', volume_id)
+                    continue
+                else:
+                    
+                    if not mapping_uuid:
+                        LOG.info('_sync_volume_status: %s mapping_uuid is None', volume_id)
+                        self.db.volume_update(context, volume_id, {'status': 'error'})
+                        continue
+                    
+                    eventlet.sleep(1)
+                    mapping_volume = self.adminCinderClient.volumes.get(mapping_uuid)
+                    mapping_status = mapping_volume._info.get('status')
+                    LOG.info('_sync_volume_status: mapping_status %s', mapping_status)
+                    
+                    if mapping_status == 'error':
+                        self.db.volume_update(context, volume_id, {'status': mapping_status})
+                        continue
+
+                    if mapping_status == 'available':
+                        update_content = {'status': mapping_status}
+                        if status in ('creating', 'downloading'):
+                            if mapping_volume._info['bootable'].lower() == 'true':
+                                update_content.update({'bootable': '1'})
+                            
+                            image_metadata = mapping_volume._info.get('volume_image_metadata', None)
+                            if image_metadata is not None:
+                                self.db.volume_glance_metadata_delete_by_volume(context, volume_id)
+                                for key, value in image_metadata.items():
+                                    self.db.volume_glance_metadata_create(context,
+                                                                          volume_id,
+                                                                          key, value)
+                                    
+                        self.db.volume_update(context, volume_id, update_content)
+                        metadata = mapping_volume._info['metadata']
+                        self._update_volume_metada(context, volume_id, metadata)
+                    else:
+                        self.db.volume_update(context, volume_id, {'status': status})
+                    continue
+            except cinder_exception.Unauthorized as ex:
+                LOG.info('_sync_volume_status: Unauthorized %s', str(ex))
+                self.adminCinderClient = self._get_cascaded_cinder_client()
+                continue
+            except cinder_exception.NotFound as ex:
+                self.db.volume_update(context, volume_id, {'status': 'error'})
+                LOG.error('_sync_volume_status: %s %s ', volume_id, str(ex))
+                continue
+            except Exception as ex:
+                LOG.error('_sync_volume_status %s', str(ex))
+                continue
+
+        LOG.info('_sync_volume_snapshots_status end')
+        return 60
 
     def _get_ccding_volume_id(self, volume):
         csd_name = volume._info.get("name", None)
@@ -487,34 +718,40 @@ class CinderProxy(manager.SchedulerDependentManager):
                     tenant_id=self.tenant_id,
                     api_key=CONF.admin_password,
                     username=CONF.cinder_username,
-                    insecure=True)
+                    insecure=True,
+                    timeout=30,
+                    retries=3)
             else:
                 ctx_dict = context.to_dict()
+
                 kwargs = {
                     'auth_url': CONF.keystone_auth_url,
-                    'tenant_id': ctx_dict.get("project_id"),
-                    'token': ctx_dict.get('auth_token'),
-                    'insecure': True,
+                    'tenant_name': CONF.cinder_tenant_name,
+                    'username': CONF.cinder_username,
+                    'password': CONF.admin_password,
+                    'insecure': True
                 }
                 keystoneclient = kc.Client(**kwargs)
-
                 management_url = self._get_management_url(keystoneclient, service_type='volumev2',
                                                       attr='region',
                                                       endpoint_type='publicURL',
                                                       filter_value=CONF.cascaded_region_name)
                 
-                LOG.info(_("cascade info: management_url:%s"), management_url)
-                args = {
-                    'service_type': 'volume2',
-                    'auth_url': CONF.keystone_auth_url,
-                    'project_id': ctx_dict.get("project_id"),
-                    'insecure': True,
-                    'api_key': None
-                }
-                cinderclient = client_cinder.Client('2', **args)
+                LOG.info("before replace: management_url:%s", management_url)                                      
+                url = management_url.rpartition("/")[0]
+                management_url = url+ '/' + ctx_dict.get("project_id")
+
+                LOG.info("after replace: management_url:%s", management_url)  
+
+                cinderclient = cinder_client.Client(
+                username=ctx_dict.get('user_id'),
+                auth_url=cfg.CONF.keystone_auth_url,
+                insecure=True,
+                timeout=30,
+                retries=3)
                 cinderclient.client.auth_token = ctx_dict.get('auth_token')
                 cinderclient.client.management_url = management_url
-                
+
             LOG.info(_("cascade info: os_region_name:%s"), CONF.cascaded_region_name)
             return cinderclient
         except keystone_exception.Unauthorized:
@@ -606,7 +843,10 @@ class CinderProxy(manager.SchedulerDependentManager):
                     except Exception as ex:
                         LOG.error("init_host delete_volume %s" %str(ex))
                         continue
-
+        self.tg.add_dynamic_timer(self._heal_volume_status, context=ctxt)
+        self.tg.add_dynamic_timer(self._sync_volume_status, context=ctxt)
+        
+        self._heal_volumetypes_and_qos(ctxt)
         # collect and publish service capabilities
         self.publish_service_capabilities(ctxt)
 
@@ -631,7 +871,9 @@ class CinderProxy(manager.SchedulerDependentManager):
 
             cascaded_snapshot_id = None
             if snapshot_id is not None:
-                cascaded_snapshot_id = snapshot_id
+                cascaded_snapshot_id = \
+                    self.volumes_mapping_cache['snapshots'].get(snapshot_id,
+                                                                None)
                 LOG.info(_('cascade ino: create volume from snapshot, '
                            'cascade id:%s'), cascaded_snapshot_id)
 
@@ -695,6 +937,7 @@ class CinderProxy(manager.SchedulerDependentManager):
                     metadata.pop('logicalVolumeId')
                 metadata['mapping_uuid'] = bodyResponse._info['id']
                 metadata['image_id'] = cascaded_image_id
+                metadata['__openstack_region_name'] = CONF.cascaded_region_name
                 self.db.volume_metadata_update(context, volume_id,
                                                metadata, True)
             self.report_vol_resouce_toMonitoring(context, "create",
@@ -836,6 +1079,12 @@ class CinderProxy(manager.SchedulerDependentManager):
                     'detaching' == cascading_status or \
                     'in-use' == cascading_status:
                     LOG.info(_("cascade info: %s status %s %s"),volume_id, cascading_status, volume_status)
+                    continue
+                
+                if 'attaching' == volume_status or \
+                    'detaching' == volume_status or \
+                    'in-use' == volume_status:
+                    LOG.info(_("cascade info: %s cascading_status[%s] volume_status[%s]"), volume_id, cascading_status, volume_status)
                     continue
                 
                 if volume_status == "available":
@@ -1032,24 +1281,17 @@ class CinderProxy(manager.SchedulerDependentManager):
      
         LOG.debug(_("cascade ino: update qos from cascaded finished"))
 
-    @periodic_task.periodic_task(spacing=CONF.volume_sync_interval,
-                                 run_immediately=True)
     def _heal_volume_status(self, context):
 
         TIME_SHIFT_TOLERANCE = 30
-
         heal_interval = CONF.volume_sync_interval
 
         if not heal_interval:
-            return
-
-        curr_time = time.time()
-        if self._last_info_volume_state_heal + heal_interval > curr_time:
-            return
-        self._last_info_volume_state_heal = curr_time
+            LOG.debug('_heal_volume_status: heal_interval is 0')
+            return CONF.volume_sync_interval
 
         try:
-            LOG.debug(_('cascade ino: current change since time:'
+            LOG.debug(_('_heal_volume_status: current change since time:'
                         '%s'), self._change_since_time)
             volumes = \
                 self._query_vol_cascaded_pagination(self._change_since_time)
@@ -1059,10 +1301,11 @@ class CinderProxy(manager.SchedulerDependentManager):
             _change_since_time = timeutils.utcnow() - \
                              datetime.timedelta(seconds=TIME_SHIFT_TOLERANCE)
             self._change_since_time = timeutils.isotime(_change_since_time)
+            return heal_interval
 
-        except Exception:
-            with excutils.save_and_reraise_exception():
-                LOG.error(_('Failed to sys volume status to db.'))
+        except Exception as ex:
+            LOG.error('_heal_volume_status Failed %s', traceback.format_exc())
+            return heal_interval
 
     @periodic_task.periodic_task(spacing=CONF.voltype_sync_interval,
                                  run_immediately=True)
@@ -1077,8 +1320,9 @@ class CinderProxy(manager.SchedulerDependentManager):
             qosSpecs = self.adminCinderClient.qos_specs.list()
             if qosSpecs:
                 self._update_volume_qos(context, qosSpecs)
-        except cinder_exception.Unauthorized:
+        except cinder_exception.Unauthorized as ex:
             self.adminCinderClient = self._get_cascaded_cinder_client()
+            LOG.error('_heal_volumetypes_and_qos: %s', str(ex))
         except Exception:
             with excutils.save_and_reraise_exception():
                 LOG.error(_('Failed to sys volume type to db.'))
@@ -1822,8 +2066,10 @@ class CinderProxy(manager.SchedulerDependentManager):
         """
         LOG.info("migrate_volume: begin [%s]" %(volume_id)) 
         orig_metadata = None
+        size = 0
         try:       
             volume = self.db.volume_get(ctxt, volume_id)
+            size = volume.get('size', 0)
             orig_metadata = dict((item['key'], item['value']) for item in volume['volume_metadata'])
             volInfoUrl = orig_metadata.get('volInfoUrl', None)
             if not volInfoUrl:
@@ -1862,7 +2108,7 @@ class CinderProxy(manager.SchedulerDependentManager):
                         time.sleep(backoff)
                         continue
                 else:
-                    msg = (_('No available service'))
+                    msg = ('No available service status[%s]' %volume['status'])
                     LOG.error(msg)
                     raise exception.CinderException(msg)
                 
@@ -1871,7 +2117,8 @@ class CinderProxy(manager.SchedulerDependentManager):
                 if orig_metadata:
                     #restore orig_metadata
                     self.db.volume_metadata_update(ctxt, volume_id,  orig_metadata, False)
-                self.db.volume_update(ctxt, volume_id, {'status': 'available', 'migration_status': 'error'})
+                status = {'status': 'available', 'migration_status': None, 'size': size}
+                self.db.volume_update(ctxt, volume_id, status)
                 
         try:
             self.delete_volume(ctxt, volume_id, unmanage_only=True)
@@ -2000,3 +2247,52 @@ class CinderProxy(manager.SchedulerDependentManager):
                             'volume %s'), cascaded_volume_id)
         return
     
+    def update_volume_metadata(self, ctxt, volume_id, metadata=None, delete=False):
+
+        if not metadata:
+            return
+
+        try:
+            volume = self.db.volume_get(ctxt, volume_id)
+            cascaded_volume_id = self.volumes_mapping_cache['volumes'].get(volume_id, '')
+            LOG.info(_('cascade ino: prepare to update metadata for cascaded volume  %s.'), cascaded_volume_id)
+
+            cinderClient = self._get_cascaded_cinder_client(ctxt)
+            
+            volume['id'] = cascaded_volume_id
+            if delete:
+                cinderClient.volumes.update_all_metadata(volume,metadata)
+            else:
+                cinderClient.volumes.set_metadata(volume,metadata)
+
+            LOG.info(_('finished to update metadata for cascade volume %s'), cascaded_volume_id)
+            return
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                LOG.error(_('failed to update metadata for cascading'
+                            'volume %s'), volume_id)
+
+    def delete_volume_metadata(self, ctxt, volume_id, keys=None):
+    
+        if not keys:
+            return
+
+        try:
+            volume = self.db.volume_get(ctxt, volume_id)
+            cascaded_volume_id = self.volumes_mapping_cache['volumes'].get(volume_id, '')
+            LOG.info(_('cascade ino: prepare to delete metadata for cascaded volume  %s.'), cascaded_volume_id)
+
+            cinderClient = self._get_cascaded_cinder_client(ctxt)
+
+            if not isinstance(keys,list):
+                keys = [keys]
+
+            volume['id'] = cascaded_volume_id
+            cinderClient.volumes.delete_metadata(volume,keys)
+
+            LOG.info(_('finished to delete metadata for cascade volume %s'), cascaded_volume_id)
+            return
+        except Exception:
+            with excutils.save_and_reraise_exception():
+                LOG.error(_('failed to delete metadata for cascading'
+                            'volume %s'), volume_id)

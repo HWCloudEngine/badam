@@ -146,10 +146,23 @@ class RpcCallbacks(n_rpc.RpcCallback,
         port_info = plugin.get_port(rpc_context, port_id)
         return port_info
 
+    def update_port(self, rpc_context, **kwargs):
+        port_id = kwargs.get('port_id')
+        agent_id = kwargs.get('agent_id')
+        port = kwargs.get('port')
+        LOG.debug("Update port %(port)s requested by agent "
+                  "%(agent_id)s",
+                  {'port': port_id, 'agent_id': agent_id})
+
+        plugin = manager.NeutronManager.get_plugin()
+        port_info = plugin.update_port(rpc_context, port_id, port)
+        return port_info
+
     def get_ports(self, rpc_context, **kwargs):
         agent_id = kwargs.get('agent_id')
         host = kwargs.get('host')
         mac_address = kwargs.get('mac_address')
+        device_owner = kwargs.get('device_owner')
         LOG.debug("Ports requested by agent "
                   "%(agent_id)s",
                   {'agent_id': agent_id})
@@ -158,6 +171,8 @@ class RpcCallbacks(n_rpc.RpcCallback,
             filters['binding:host_id'] = [host]
         if mac_address != None:
             filters['mac_address'] = [mac_address]
+        if device_owner != None:
+            filters['device_owner'] = [device_owner]
         plugin = manager.NeutronManager.get_plugin()
         ports_info = plugin.get_ports(rpc_context, filters=filters)
         return ports_info
@@ -173,6 +188,17 @@ class RpcCallbacks(n_rpc.RpcCallback,
         plugin = manager.NeutronManager.get_plugin()
         networks_info = plugin.get_networks(rpc_context, filters=filters)
         return networks_info
+
+    def port_bound_to_router(self, rpc_context, **kwargs):
+        agent_id = kwargs.get('agent_id')
+        host = kwargs.get('host')
+        port_id = kwargs.get('port_id')
+        LOG.debug("Port %(port_id)s bound to router of host %(host)s requested by agent "
+                  "%(agent_id)s",
+                  {'port_id':port_id, 'host': host, 'agent_id': agent_id})
+        plugin = manager.NeutronManager.get_plugin()
+        port_bound = plugin.port_bound_to_router(rpc_context, port_id, host)
+        return port_bound
 
     def port_bound_to_host(self, rpc_context, **kwargs):
         agent_id = kwargs.get('agent_id')

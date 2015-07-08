@@ -121,10 +121,21 @@ class PluginApi(n_rpc.RpcProxy):
                          self.make_msg('get_port_detail', port_id=port_id,
                                        agent_id=agent_id))
 
-    def get_ports(self, context, agent_id, host=None, mac_address=None):
+    def get_ports(self, context, agent_id, host=None, mac_address=None, device_owner=None):
         return self.call(context,
                          self.make_msg('get_ports', agent_id=agent_id,
-                                       host=host, mac_address=mac_address))
+                                       host=host, mac_address=mac_address,
+                                       device_owner=device_owner))
+
+    def update_port(self, context, port_id, agent_id, port):
+        return self.call(context,
+                         self.make_msg('update_port', port_id=port_id,
+                                       agent_id=agent_id, port=port))
+
+    def port_bound_to_router(self, context, port_id, agent_id, host):
+        return self.call(context,
+                         self.make_msg('port_bound_to_router', port_id=port_id,
+                                       agent_id=agent_id, host=host))
 
     def port_bound_to_host(self, context, port_id, agent_id, host):
         return self.call(context,
