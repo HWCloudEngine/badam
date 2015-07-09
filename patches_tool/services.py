@@ -1,7 +1,6 @@
 __author__ = 'nash.xiejun'
 import sys
 import os
-import logging
 import traceback
 import json
 
@@ -18,9 +17,6 @@ import fsutils
 import fs_system_util
 
 import log
-logger_module = log
-logger = log
-
 
 class RefServices(object):
 
@@ -125,13 +121,12 @@ class RefServices(object):
         try:
             aggregate_result = self.nova.aggregates.create(name, availability_zone)
 
-            log.info('created Aggregate result is : %s ' % aggregate_result, logging.INFO)
+            log.info('created Aggregate result is : %s ' % aggregate_result)
 
             if aggregate_result.name == name:
                 result = aggregate_result
         except Exception, e:
-            logger_module.error('Exception when create AG for %s, Exception: %s' % (name, traceback.format_exc()),
-                         logging.ERROR)
+            log.error('Exception when create AG for %s, Exception: %s' % (name, traceback.format_exc()))
             print(e.message)
 
         return result
@@ -146,11 +141,11 @@ class RefServices(object):
 
         try:
             add_result = self.nova.aggregates.add_host(aggregate, host)
-            log.info('Add host<%s> to aggregate<%s>, result : %s ' % (host, aggregate, add_result), logging.INFO)
+            log.info('Add host<%s> to aggregate<%s>, result : %s ' % (host, aggregate, add_result))
             result = True
         except:
             log.error('Exception when add host<%s> to aggregate<%s>, Exception : %s ' %
-                      (host, aggregate, traceback.format_exc()), logging.ERROR)
+                      (host, aggregate, traceback.format_exc()))
 
         return result
 
@@ -164,7 +159,7 @@ class RefServices(object):
         except nova_client.exceptions.NotFound:
             return result
         except:
-            logger.error('Exception when exec nova_aggregate_exist, Exception: %s' % traceback.format_exc())
+            log.error('Exception when exec nova_aggregate_exist, Exception: %s' % traceback.format_exc())
             print traceback.format_exc()
             result = True
 
@@ -192,7 +187,7 @@ class RefServices(object):
         tenants = self.keystone.tenants.list()
 
         if tenants is None:
-            logger.info('No any tenant in keystone.')
+            log.info('No any tenant in keystone.')
         else:
             for tenant in tenants:
                 if tenant.name == tenant_name:
@@ -232,7 +227,7 @@ class RefServices(object):
             service_id = self.get_service_id(service_type)
 
             if self.endpoint_exist(service_id, region):
-                logger.info('Endpoint for service<%s> region <%s> is exist, no need to create again.' %
+                log.info('Endpoint for service<%s> region <%s> is exist, no need to create again.' %
                             (service_type, region))
                 return
 
@@ -241,13 +236,13 @@ class RefServices(object):
 
             create_result = self.create_endpoint(region, service_id, public_url, admin_url, internal_url)
             if create_result is True:
-                logger.info('SUCCESS to create endpoint for type <%s> region: <%s>' % (service_type, region))
+                log.info('SUCCESS to create endpoint for type <%s> region: <%s>' % (service_type, region))
             else:
-                logger.info('FAILED to create endpoint for type <%s> region: <%s>' % (service_type, region))
+                log.info('FAILED to create endpoint for type <%s> region: <%s>' % (service_type, region))
         except:
             err_info = 'Exception occur when create endpoint for type<%s> region <%s>, EXCEPTION %s' % \
                        (service_type, region, traceback.format_exc())
-            logger.info(err_info)
+            log.info(err_info)
 
     def endpoint_exist(self, service_id, region):
         result = False

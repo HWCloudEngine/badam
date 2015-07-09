@@ -98,8 +98,8 @@ CONF.register_group(group_vtepdriver)
 CONF.register_opts(provider_opts, group_provider_opts)
 CONF.register_opts(vtepdriver, group_vtepdriver)
 
-patches_tool_config_file = os.path.join(CURRENT_PATH, 'patches_tool_config.ini')
-CONF(['--config-file=%s' % patches_tool_config_file])
+aws_config_ini = os.path.join(CURRENT_PATH, 'aws_config.ini')
+CONF(['--config-file=%s' % aws_config_ini])
 
 def restart_component(service_name, template_name):
     """Stop an component, then start it."""
