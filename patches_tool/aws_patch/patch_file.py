@@ -258,7 +258,8 @@ def create_aggregate_in_cascaded_node():
 if __name__ == '__main__':
     LOG.init('patches_tool_config')
     LOG.info('START to patch for aws...')
-    config.export_env()
+    config.export_region()
+
 
     try:
         replace_all_config()

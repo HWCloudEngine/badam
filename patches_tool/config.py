@@ -462,17 +462,20 @@ def get_os_region_name():
     cps_business = CPSServiceBusiness()
     return cps_business.get_os_region_name()
 
-def export_env():
+def export_region():
     os_region_name = get_os_region_name()
+    os.environ['OS_REGION_NAME'] = os_region_name
+
+def export_env():
     os.environ['OS_AUTH_URL'] = CONF.ENV.OS_AUTH_URL
     os.environ['OS_USERNAME'] = CONF.ENV.OS_USERNAME
     os.environ['OS_TENANT_NAME'] = CONF.ENV.OS_TENANT_NAME
-    os.environ['OS_REGION_NAME'] = os_region_name
     os.environ['NOVA_ENDPOINT_TYPE'] = CONF.ENV.NOVA_ENDPOINT_TYPE
     os.environ['CINDER_ENDPOINT_TYPE'] = CONF.ENV.CINDER_ENDPOINT_TYPE
     os.environ['OS_ENDPOINT_TYPE'] = CONF.ENV.OS_ENDPOINT_TYPE
     os.environ['OS_VOLUME_API_VERSION'] = CONF.ENV.OS_VOLUME_API_VERSION
     os.environ['OS_PASSWORD'] = CONF.ENV.OS_PASSWORD
+export_env()
 
 if __name__ == '__main__':
     if len(sys.argv) <= 1:
@@ -486,7 +489,7 @@ if __name__ == '__main__':
     log.init('patches_tool_config')
     log.info('Start to config cascading....')
     mode = sys.argv[1]
-    export_env()
+    export_region()
     config_cascading = ConfigCascading()
     dispatch_patch_tool = DispatchPatchTool()
 
