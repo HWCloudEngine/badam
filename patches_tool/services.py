@@ -343,6 +343,7 @@ class RefCPSServiceExtent(object):
 class CPSServiceBusiness(object):
     def __init__(self):
         self.NOVA = 'nova'
+        self.NOVA_API = 'nova-api'
         self.NEUTRON = 'neutron'
         self.NEUTRON_l2 = 'neutron-l2'
         self.NEUTRON_l3 = 'neutron-l3'
@@ -398,17 +399,25 @@ class CPSServiceBusiness(object):
         neutron_proxy_template = self.get_neutron_l3_proxy_template(proxy_number)
         RefCPSServiceExtent.host_template_instance_operate(self.NEUTRON, neutron_proxy_template, self.OPT_START)
 
+    def stop_nova_api(self):
+        RefCPSServiceExtent.host_template_instance_operate(self.NOVA, self.NOVA_API, self.OPT_STOP)
+
+    def start_nova_api(self):
+        RefCPSServiceExtent.host_template_instance_operate(self.NOVA, self.NOVA_API, self.OPT_START)
+
     def stop_all(self, proxy_number):
         self.stop_cinder_proxy(proxy_number)
         self.stop_neutron_l2_proxy(proxy_number)
         self.stop_neutron_l3_proxy(proxy_number)
         self.stop_nova_proxy(proxy_number)
+        self.stop_nova_api()
 
     def start_all(self, proxy_number):
         self.start_cinder_proxy(proxy_number)
         self.start_neutron_l2_proxy(proxy_number)
         self.start_neutron_l3_proxy(proxy_number)
         self.start_nova_proxy(proxy_number)
+        self.start_nova_api()
 
     def check_status_for_template(self, service, template, aim_status):
         template_instance_info = RefCPSServiceExtent.list_template_instance(service, template)
