@@ -67,7 +67,8 @@ class DispatchPatchTool(object):
         full_patch_of_patches_tool = os.path.join(patches_tool_path, SysPath.PATCHES_TOOL_TAR_GZ)
         if os.path.isfile(full_patch_of_patches_tool):
             self.remove_tar_patches_tool(full_patch_of_patches_tool)
-        utils.make_tarfile(SysPath.PATCHES_TOOL_TAR_GZ, patches_tool_path)
+        new_tar_of_patches_tool = os.path.join(patches_tool_path, SysPath.PATCHES_TOOL_TAR_GZ)
+        utils.make_tarfile(new_tar_of_patches_tool, patches_tool_path)
         log.info('Success to tar patches_tool: <%s>' % full_patch_of_patches_tool)
 
         return full_patch_of_patches_tool
