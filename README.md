@@ -1,3 +1,3 @@
 # badam
 openstack
-License: Apache 3.2
+License: Apache 2.0
