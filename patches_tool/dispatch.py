@@ -9,16 +9,19 @@ from constants import SysUserInfo, SysPath, ScriptFilePath
 from services import CPSServiceBusiness
 
 
-
 class DispatchPatchTool(object):
 
-    def __init__(self):
+    def __init__(self, proxy_match_region):
         # self.filter_for_dispatch = ['.py', '.sh', '.ini', '.pem', '.txt', '.vmx', '.json']
         self.filter_for_dispatch = []
         self.cps_service_business = CPSServiceBusiness()
         self.aws_cascaded_node_hosts = self.cps_service_business.get_aws_node_hosts()
         self.vcloud_cascaded_node_hosts = self.cps_service_business.get_vcloud_node_hosts()
         self.openstack_cascaded_node_hosts = self.cps_service_business.get_openstack_hosts()
+        self.proxy_match_region = proxy_match_region
+        log.info('proxy_match_region: %s' % self.proxy_match_region)
+        self.proxy_hosts = self.cps_service_business.get_all_proxy_nodes(self.proxy_match_region)
+        log.info('proxy_hosts: %s' % self.proxy_hosts)
 
     def dispatch_patch_tool_to_host(self, host):
         path_of_patch_tool = utils.get_patches_tool_path()
@@ -73,15 +76,27 @@ class DispatchPatchTool(object):
 
         return full_patch_of_patches_tool
 
-    def dispatch_patches_tool_to_remote_cascaded_nodes(self):
+    def dispatch_patches_tool_to_remote_nodes(self):
         log.info('Start to dispatch patches_tool to remote cascaded nodes')
         print('Start to dispatch_patches_tool_to_remote_cascaded_nodes')
+
         local_full_path_of_tar_file = self.tar_patches_tool()
+
         self.dispatch_patches_tool_to_aws_cascaded_nodes(local_full_path_of_tar_file)
         self.dispatch_patches_tool_to_vcloud_cascaded_nodes(local_full_path_of_tar_file)
         self.dispatch_patches_tool_to_openstack_cascaded_nodes(local_full_path_of_tar_file)
+        self.dispatch_patches_tool_to_proxy_nodes(local_full_path_of_tar_file)
+
         print('Finish to dispatch_patches_tool_to_remote_cascaded_nodes')
         log.info('Finish to dispatch patches_tool to remote cascaded nodes')
+
+    def dispatch_patches_tool_to_proxy_nodes(self, local_full_path_of_tar_file):
+        log.info('Start to dispatch_patches_tool_to_proxy_nodes')
+        print('Start to dispatch to proxy nodes')
+        for host in self.proxy_hosts:
+            self.dispatch_patches_tool_to_host_with_tar(host, local_full_path_of_tar_file)
+        print('Finish to dispatch to proxy nodes')
+        log.info('End to dispatch_patches_tool_to_proxy_nodes')
 
     def dispatch_patches_tool_to_aws_cascaded_nodes(self, local_full_path_of_tar_file):
         log.info('Start to dispatch_patches_tool_to_aws_cascaded_nodes')
@@ -168,6 +183,29 @@ class DispatchPatchTool(object):
         try:
             ssh = sshutils.SSH(host=host, user=SysUserInfo.ROOT, password=SysUserInfo.ROOT_PWD)
             ssh.run('python %s cascaded' % ScriptFilePath.PATCH_REMOTE_HYBRID_CONFIG_PY)
+            ssh.close()
         except Exception, e:
             log.error('Exception when remote_config_openstack_cascaded_node in HOST:<%s>' % host)
             log.error('Exception: %s' % traceback.format_exc())
+
+    def dispatch_cmd_to_all_proxy_nodes(self, cmd):
+        self.dispatch_cmd_to_hosts(cmd, self.proxy_hosts)
+
+    def dispatch_cmd_to_all_az_nodes(self, cmd):
+        self.dispatch_cmd_to_hosts(cmd, self.openstack_cascaded_node_hosts)
+        self.dispatch_cmd_to_hosts(cmd, self.vcloud_cascaded_node_hosts)
+        self.dispatch_cmd_to_hosts(cmd, self.aws_cascaded_node_hosts)
+
+    def dispatch_cmd_to_hosts(self, cmd, hosts):
+        log.info('Start to execute cmd<%s> in hosts<%s>' %(cmd, str(hosts)))
+        for host in hosts:
+            try:
+                ssh = sshutils.SSH(host=host, user=SysUserInfo.ROOT, password=SysUserInfo.ROOT_PWD)
+                ssh.run(cmd)
+                ssh.close()
+            except Exception, e:
+                log.error('Exception occur when execute cmd<%s> in host<%s>' % (cmd, hosts))
+                log.error('Exception: %s' % traceback.format_exc())
+                continue
+
+        log.info('Finish to execute cmd<%s> in hosts<%s>' %(cmd, str(hosts)))

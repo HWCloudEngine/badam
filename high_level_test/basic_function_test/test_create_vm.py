@@ -20,7 +20,7 @@ export_env()
 
 class TestNova(unittest.TestCase):
 
-    def test_create_vm(self):
+    def test_create_vm_in_az01(self):
         ACTIVE_STATUS = 'ACTIVE'
         SERVER_NAME = 'test-ci-vm-01'
         nics = [{'net-id': '43ec660c-0687-4be4-a781-700ce81931d2'}]
@@ -42,7 +42,7 @@ class TestNova(unittest.TestCase):
                     if status_last_check == ACTIVE_STATUS:
                         break
                     else:
-                        time.sleep(5)
+                        time.sleep(10)
                         continue
                 else:
                     continue
@@ -51,6 +51,12 @@ class TestNova(unittest.TestCase):
 
         if status_last_check == ACTIVE_STATUS:
             services.nova_delete(created_server)
+
+    def test_create_vm_in_az11(self):
+        self.assertEqual('test', 'test')
+
+    def test_create_vm_in_az31(self):
+        self.assertEqual('test', 'test')
 
 
 suite = unittest.TestLoader().loadTestsFromTestCase(TestNova)

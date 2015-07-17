@@ -57,6 +57,9 @@ class SysPath(object):
     PATCHES_TOOL = 'patches_tool'
     PATCHES_TOOL_TAR_GZ = 'patches_tool.tar.gz'
     PATH_PATCHES_TOOL =os.path.join(HOME_FSP, PATCHES_TOOL)
+    FS_CODE_BACKUP = 'fs_code_backup'
+    # /etc/home/fs_code_backup
+    PATH_FS_CODE_BACKUP = os.path.join(HOME_FSP, FS_CODE_BACKUP)
 
 
 class SysUserInfo(object):

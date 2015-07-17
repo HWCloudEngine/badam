@@ -7,12 +7,14 @@ import traceback
 from oslo.config import cfg
 from constants import FileName
 import socket
+import shutil
+import errno
 
 import log
 import utils
 from utils import CommonCMD, SSHConnection
 from services import RefServices, RefCPSService, RefCPSServiceExtent, RefFsUtils, RefFsSystemUtils, CPSServiceBusiness
-from constants import CfgFilePath, SysUserInfo
+from constants import CfgFilePath, SysUserInfo, SysPath, ScriptFilePath
 from dispatch import DispatchPatchTool
 
 module_logger = log
@@ -450,6 +452,76 @@ class ConfigCascading(object):
         print('****End to create route table...')
 
 
+class BackupRecoverFS(object):
+    def __init__(self):
+        self._init_paths_need_to_backup()
+        self.path_fs_code_backup = SysPath.PATH_FS_CODE_BACKUP
+
+    def _init_paths_need_to_backup(self):
+        nova = 'nova'
+        self.openstack_installed_path = utils.get_openstack_installed_path()
+        nova_path = os.path.join(self.openstack_installed_path, nova)
+        neutron = 'neutron'
+        neutron_path = os.path.join(self.openstack_installed_path, neutron)
+        cinder = 'cinder'
+        cinder_path = os.path.join(self.openstack_installed_path, cinder)
+
+        self.paths_need_to_backup = [nova_path, neutron_path, cinder_path]
+        log.info('paths_need_to_backup: %s' % str(self.paths_need_to_backup))
+
+    def back_fs_code(self):
+        log.info('Start to backup fs code.')
+        if os.path.isdir(self.path_fs_code_backup):
+            shutil.rmtree(self.path_fs_code_backup)
+
+        for source_path in self.paths_need_to_backup:
+            try:
+                dist_path = os.path.join(self.path_fs_code_backup, os.path.basename(source_path))
+                if os.path.isdir(dist_path):
+                    #clear backup code before.
+                    shutil.rmtree(dist_path)
+                    log.info('remove old backup code.')
+
+                self.copy_anything(source_path, dist_path)
+            except Exception, e:
+                log.error('Exception occur when backup service<%s>' % os.path.basename(source_path))
+                log.error('Exception: %s' % traceback.format_exc())
+            log.info('Finish to backup for code<%s>' % os.path.basename(source_path))
+
+        log.info('Finish to backup fs code.')
+
+    def recover_fs_code(self):
+        log.info('Start to recover fs code.')
+        # services_dirs, e.g. ['nova', 'cinder', 'neutron']
+        services_dirs = os.listdir(self.path_fs_code_backup)
+        for service_dir in services_dirs:
+
+            path_backup_service_code = os.path.join(self.path_fs_code_backup, service_dir)
+            if os.path.isdir(path_backup_service_code):
+                # remove openstack service code in sites-package.
+                service_dir_to_be_remove = os.path.join(self.openstack_installed_path, service_dir)
+                if os.path.isdir(service_dir_to_be_remove):
+                    shutil.rmtree(service_dir_to_be_remove)
+                    log.info('remove code from site-package of service<%s>' % service_dir)
+
+                dest_path = os.path.join(self.openstack_installed_path, service_dir)
+                # copy backup files of openstack service to openstack installed path(/usr/lib64/python2.6/site-package/).
+                self.copy_anything(path_backup_service_code, dest_path)
+                log.info('Finish to recover code of service<%s>' % service_dir)
+            else:
+                log.error('No backup code for service:<%s> in path: %s' % (service_dir, path_backup_service_code))
+
+        log.info('Finish to recover fs code')
+
+    def copy_anything(self, src, dst):
+        try:
+            shutil.copytree(src, dst)
+        except OSError as exc:
+            if exc.errno == errno.ENOTDIR:
+                shutil.copy(src, dst)
+            else:
+                raise
+
 def get_all_cascaded_hosts():
     cps_business = CPSServiceBusiness()
     openstack_az_hosts = cps_business.get_openstack_hosts()
@@ -479,11 +551,13 @@ export_env()
 
 if __name__ == '__main__':
     if len(sys.argv) <= 1:
-        print('Please select mode, options is: 1. cascading; 2. cascaded; 3. check; 4. restart')
+        print('Please select mode, options is: 1.prepare; 2. cascading; 3. check; 4. restart; 5.remote-backup; 6.remote-recover')
+        print('Option <prepare> is use to copy patches_tool to proxy nodes and az nodes.')
         print('Option <cascading> is use to config cascading node and proxy node. Only need to execute once in cascading node.')
-        print('Option <cascaded> is use to config cascaded node. Need to copy to each cascaded node to execute.')
         print('Option <check> is use to check status of services in cascading and proxy node.')
         print('Option <restart> is use to restart services in cascading and proxy node.')
+        print('Option <remote-backup> is use to backup fs code(nova, cinder, neutron) in /home/fsp/fs_code_backup dir.')
+        print('Option <remote-recover> is use to ')
         exit(0)
     print('Start to config cascading....')
     log.init('patches_tool_config')
@@ -491,13 +565,13 @@ if __name__ == '__main__':
     mode = sys.argv[1]
     export_region()
     config_cascading = ConfigCascading()
-    dispatch_patch_tool = DispatchPatchTool()
+    dispatch_patch_tool = DispatchPatchTool(proxy_match_region=CONF.DEFAULT.proxy_match_region)
 
     #first to dispatch patch_tool to all cascaded node.
     if mode == 'prepare':
         all_cascaded_host = get_all_cascaded_hosts()
         utils.remote_open_root_permit_for_hosts(all_cascaded_host)
-        dispatch_patch_tool.dispatch_patches_tool_to_remote_cascaded_nodes()
+        dispatch_patch_tool.dispatch_patches_tool_to_remote_nodes()
 
     #Second to config cascading node to add proxy roles and config proxy nodes connect with cascaded nodes.
     elif mode == 'cascading':
@@ -506,6 +580,16 @@ if __name__ == '__main__':
         #Thrid to Config cascaded node to connect with cascading node.
         dispatch_patch_tool.remote_config_cascaded_for_all_type_node()
 
+    elif mode == 'remote-backup':
+        executed_cmd = 'python %s %s' % (ScriptFilePath.PATCH_REMOTE_HYBRID_CONFIG_PY, 'local-backup')
+        dispatch_patch_tool.dispatch_cmd_to_all_proxy_nodes(executed_cmd)
+        dispatch_patch_tool.dispatch_cmd_to_all_az_nodes(executed_cmd)
+
+    elif mode == 'remote-recover':
+        executed_cmd = 'python %s %s' % (ScriptFilePath.PATCH_REMOTE_HYBRID_CONFIG_PY, 'local-recover')
+        dispatch_patch_tool.dispatch_cmd_to_all_proxy_nodes(executed_cmd)
+        dispatch_patch_tool.dispatch_cmd_to_all_az_nodes(executed_cmd)
+
     #this mode cascaded is use to be called in cascaded node remotely in cascading node.
     elif mode == 'cascaded':
         config_cascading.config_cascaded_nodes()
@@ -513,6 +597,14 @@ if __name__ == '__main__':
         config_cascading.check_service_status()
     elif mode == 'restart':
         config_cascading.restart_services()
+
+    elif mode == 'local-backup':
+        backup_recover_service = BackupRecoverFS()
+        backup_recover_service.back_fs_code()
+
+    elif mode == 'local-recover':
+        backup_recover_service = BackupRecoverFS()
+        backup_recover_service.recover_fs_code()
 
     print('End to config')
     log.info('End to config')
