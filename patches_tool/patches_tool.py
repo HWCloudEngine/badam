@@ -5,10 +5,9 @@ import stat
 import time
 
 import utils
-from utils import CommonCMD, SSHConnection
+from utils import SSHConnection
 import config
-from config import CONF
-from constants import PatchFilePath
+from constants import PatchFilePath, SysPath
 from services import RefCPSService, CPSServiceBusiness
 from dispatch import DispatchPatchTool
 import log
@@ -40,7 +39,7 @@ class PatchInstaller(InstallerBase):
         self.openstack_install_path = openstack_install_path
         # filter is valid suffix of files, for example: ['.py']
         self.filters = filters
-        self.bak_openstack_path = CONF.DEFAULT.openstack_bak_path
+        # self.bak_openstack_path = CONF.DEFAULT.openstack_bak_path
 
     def get_patch_files(self, patch_path, filters):
         """
@@ -54,34 +53,34 @@ class PatchInstaller(InstallerBase):
         """
         return utils.get_files(patch_path, filters)
 
-    def bak_patched_file(self, bak_file_path, relative_path):
-        """
-
-        :param patch_file:  one file of patch's source code files,
-            for example: /root/tricircle-master/juno-patches/nova/nova_scheduling_patch/nova/conductor/manager.py
-        :param relative_path:
-            for example: nova/conductor/manager.py
-        :return:
-        """
-        logger.info('Start bak_patched_file, bak_file_path:%s, relative_path:%s' % (bak_file_path, relative_path))
-        # relative_path is relative to this path(self.patch_path),
-        # for example: if self.patch_path = "/root/tricircle-master/juno-patches/nova/nova_scheduling_patch/"
-        # then relative_path of manager.py is "/nova/nova_scheduling_patch/nova/conductor/manager.py"
-        bak_path = os.path.sep.join([self.bak_openstack_path, str(self.host_ip)])
-        if not os.path.isdir(bak_path):
-            CommonCMD.mkdir(bak_path)
-        bak_dir = os.path.join(bak_path, os.path.dirname(relative_path))
-        if not os.path.isdir(bak_dir):
-            CommonCMD.mkdir(bak_dir)
-
-        ssh = SSHConnection(self.host_ip, 'root', 'Huawei@CLOUD8!')
-
-        if os.path.isfile(bak_file_path):
-            CommonCMD.cp_to(bak_file_path, bak_dir)
-        else:
-            info = 'file: <%s> is a new file, no need to bak.' % bak_file_path
-            logger.info(info)
-        logger.info('Success to bak_patched_file, bak_file_path:%s' % bak_file_path)
+    # def bak_patched_file(self, bak_file_path, relative_path):
+    #     """
+    #
+    #     :param patch_file:  one file of patch's source code files,
+    #         for example: /root/tricircle-master/juno-patches/nova/nova_scheduling_patch/nova/conductor/manager.py
+    #     :param relative_path:
+    #         for example: nova/conductor/manager.py
+    #     :return:
+    #     """
+    #     logger.info('Start bak_patched_file, bak_file_path:%s, relative_path:%s' % (bak_file_path, relative_path))
+    #     # relative_path is relative to this path(self.patch_path),
+    #     # for example: if self.patch_path = "/root/tricircle-master/juno-patches/nova/nova_scheduling_patch/"
+    #     # then relative_path of manager.py is "/nova/nova_scheduling_patch/nova/conductor/manager.py"
+    #     bak_path = os.path.sep.join([self.bak_openstack_path, str(self.host_ip)])
+    #     if not os.path.isdir(bak_path):
+    #         CommonCMD.mkdir(bak_path)
+    #     bak_dir = os.path.join(bak_path, os.path.dirname(relative_path))
+    #     if not os.path.isdir(bak_dir):
+    #         CommonCMD.mkdir(bak_dir)
+    #
+    #     ssh = SSHConnection(self.host_ip, 'root', 'Huawei@CLOUD8!')
+    #
+    #     if os.path.isfile(bak_file_path):
+    #         CommonCMD.cp_to(bak_file_path, bak_dir)
+    #     else:
+    #         info = 'file: <%s> is a new file, no need to bak.' % bak_file_path
+    #         logger.info(info)
+    #     logger.info('Success to bak_patched_file, bak_file_path:%s' % bak_file_path)
 
     def install(self):
         result = 'FAILED'
@@ -115,7 +114,7 @@ class PatchInstaller(InstallerBase):
 class PatchesTool(object):
 
     def __init__(self):
-        self.proxy_match_region = CONF.DEFAULT.proxy_match_region
+        self.proxy_match_region = config.CONF.DEFAULT.proxy_match_region
 
     def patch_for_cascading_and_proxy_node(self):
         host_list = RefCPSService.host_list()
@@ -186,7 +185,7 @@ if __name__ == '__main__':
     print('Start to patch Hybrid-Cloud patches in cascaded nodes...')
     log.info('Start to patch Hybrid-Cloud patches in cascaded nodes...')
 
-    dispatch_patch_tool = DispatchPatchTool()
+    dispatch_patch_tool = DispatchPatchTool(proxy_match_region=config.CONF.DEFAULT.proxy_match_region)
     dispatch_patch_tool.remote_patch_for_cascaded_nodes()
 
     print('Finish to patch Hybrid-Cloud patches in cascaded nodes...')
