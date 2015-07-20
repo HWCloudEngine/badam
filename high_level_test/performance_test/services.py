@@ -51,8 +51,6 @@ class RefServices(object):
 
         d['bypass_url'] = self.bypass_url
 
-        log.info('keystone credentials: %s' % d)
-
         return d
 
     def get_nova_credentials_v2(self):
@@ -114,8 +112,29 @@ class RefServices(object):
 
         return openstack_clients.keystone().client_v2
 
-    def nova_list(self):
-        return self.nova.servers.list(detailed=True)
+    def nova_list(self, search_opts=None):
+        return self.nova.servers.list(detailed=True, search_opts=search_opts)
+
+    def nova_create(self, name, image, flavor, meta=None, files=None,
+               reservation_id=None, min_count=None,
+               max_count=None, security_groups=None, userdata=None,
+               key_name=None, availability_zone=None,
+               block_device_mapping=None, block_device_mapping_v2=None,
+               nics=None, scheduler_hints=None,
+               config_drive=None, **kwargs):
+        return self.nova.servers.create(name, image, flavor, meta, files,
+               reservation_id, min_count,
+               max_count, security_groups, userdata,
+               key_name, availability_zone,
+               block_device_mapping, block_device_mapping_v2,
+               nics, scheduler_hints,
+               config_drive, **kwargs)
+
+    def nova_delete(self, server):
+        return self.nova.servers.delete(server)
+
+    def availability_zones_list(self):
+        return self.nova.availability_zones.list()
 
     def nova_aggregate_create(self, name, availability_zone):
         result = None
@@ -345,7 +364,6 @@ class RefCPSServiceExtent(object):
 class CPSServiceBusiness(object):
     def __init__(self):
         self.NOVA = 'nova'
-        self.NOVA_API = 'nova-api'
         self.NEUTRON = 'neutron'
         self.NEUTRON_l2 = 'neutron-l2'
         self.NEUTRON_l3 = 'neutron-l3'
@@ -401,25 +419,17 @@ class CPSServiceBusiness(object):
         neutron_proxy_template = self.get_neutron_l3_proxy_template(proxy_number)
         RefCPSServiceExtent.host_template_instance_operate(self.NEUTRON, neutron_proxy_template, self.OPT_START)
 
-    def stop_nova_api(self):
-        RefCPSServiceExtent.host_template_instance_operate(self.NOVA, self.NOVA_API, self.OPT_STOP)
-
-    def start_nova_api(self):
-        RefCPSServiceExtent.host_template_instance_operate(self.NOVA, self.NOVA_API, self.OPT_START)
-
     def stop_all(self, proxy_number):
         self.stop_cinder_proxy(proxy_number)
         self.stop_neutron_l2_proxy(proxy_number)
         self.stop_neutron_l3_proxy(proxy_number)
         self.stop_nova_proxy(proxy_number)
-        self.stop_nova_api()
 
     def start_all(self, proxy_number):
         self.start_cinder_proxy(proxy_number)
         self.start_neutron_l2_proxy(proxy_number)
         self.start_neutron_l3_proxy(proxy_number)
         self.start_nova_proxy(proxy_number)
-        self.start_nova_api()
 
     def check_status_for_template(self, service, template, aim_status):
         template_instance_info = RefCPSServiceExtent.list_template_instance(service, template)
@@ -546,27 +556,6 @@ class CPSServiceBusiness(object):
                                    RefFsSystemUtils.get_dc_by_domain(region)])
 
         return os_region_name
-
-    def get_all_proxy_nodes(self, proxy_match_region):
-        proxy_node_hosts = []
-        host_list = RefCPSService.host_list()
-        for host in host_list['hosts']:
-            roles_list = host['roles']
-            proxy_host_ip = host['manageip']
-            region = self._get_region_by_roles_list(roles_list, proxy_match_region)
-            if region is not None:
-                proxy_node_hosts.append(proxy_host_ip)
-            else:
-                log.info('Region of ip <%s> is None, this host of ip address is not a proxy' % proxy_host_ip)
-
-        return proxy_node_hosts
-
-    def _get_region_by_roles_list(self, roles_list, proxy_match_region):
-        for role in roles_list:
-            if 'compute-proxy' in role:
-                proxy_number = role.split('-')[1]
-                return proxy_match_region[proxy_number]
-        return
 
 class RefFsUtils(object):
 
