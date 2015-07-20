@@ -20,6 +20,41 @@ export_env()
 
 class TestNova(unittest.TestCase):
 
+    def setUp(self):
+        """
+        The setUp() and tearDown() methods allow you to define instructions that will be executed
+        before and after each test method.
+        :return:
+        """
+        pass
+
+    def tearDown(self):
+        """
+        The setUp() and tearDown() methods allow you to define instructions that will be executed
+        before and after each test method.
+        :return:
+        """
+        pass
+
+    @classmethod
+    def setUpClass(cls):
+        """
+        The setUpClass() and tearDownClass() methods allow you to define instructions that will be executed
+        before and after each test class.
+        :return:
+        """
+        pass
+
+    @classmethod
+    def tearDownClass(cls):
+        """
+        The setUpClass() and tearDownClass() methods allow you to define instructions that will be executed
+        before and after each test class.
+        :return:
+        :return:
+        """
+        pass
+
     def test_create_vm_in_az01(self):
         ACTIVE_STATUS = 'ACTIVE'
         SERVER_NAME = 'test-ci-vm-01'
@@ -33,19 +68,15 @@ class TestNova(unittest.TestCase):
         status_last_check = ''
         # wait for 60 seconds, every 10 seconds check one times, if status is active, pass.
         for i in range(6):
-            servers = services.nova_list()
+            server = services.nova_show(created_server)
+            status_last_check = server.status
 
-            for server in servers:
+            if status_last_check == ACTIVE_STATUS:
+                break
+            else:
+                time.sleep(10)
+                continue
 
-                if server.name == SERVER_NAME:
-                    status_last_check = server.status
-                    if status_last_check == ACTIVE_STATUS:
-                        break
-                    else:
-                        time.sleep(10)
-                        continue
-                else:
-                    continue
         # if exceed 60 seconds, status is still not active, failed.
         self.assertEqual(ACTIVE_STATUS, status_last_check)
 
@@ -57,7 +88,6 @@ class TestNova(unittest.TestCase):
 
     def test_create_vm_in_az31(self):
         self.assertEqual('test', 'test')
-
 
 suite = unittest.TestLoader().loadTestsFromTestCase(TestNova)
 unittest.TextTestRunner(verbosity=2).run(suite)
