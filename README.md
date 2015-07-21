@@ -1,3 +1,3 @@
-# badam
-用于项目组成员存放自己的脚本、不属于openstack项目的代码以及其他文件�
-License: Apache 3.0�
+# test CI 0.2
+openstack
+License: Apache 2.0

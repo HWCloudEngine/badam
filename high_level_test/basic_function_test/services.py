@@ -115,6 +115,9 @@ class RefServices(object):
     def nova_list(self, search_opts=None):
         return self.nova.servers.list(detailed=True, search_opts=search_opts)
 
+    def nova_show(self, server):
+        return self.nova.servers.get(server)
+
     def nova_create(self, name, image, flavor, meta=None, files=None,
                reservation_id=None, min_count=None,
                max_count=None, security_groups=None, userdata=None,
