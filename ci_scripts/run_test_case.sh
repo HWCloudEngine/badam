@@ -39,12 +39,10 @@ do
             result=`tail -1 ${module_log_dir}${test_case_name}/result.txt`
             echo -e "Test name : ${test_case_name}\t\tTest result : ${result}" >> ${RESULT_LOG}
     
-            if [ ${result} = "OK" ]; then
+            if [ "$(cat patch_deploy_check.LOG | grep "OK")" != "" ]; then
                 success=`expr $success + 1`
-            fi
-
-            if [ ${result} = "FAILED" ]; then
-                failed=`expr $failed + 1`
+			else
+			    failed=`expr $failed + 1`
             fi
         done
 	fi
