@@ -84,31 +84,43 @@ class PatchInstaller(InstallerBase):
 
     def install(self):
         result = 'FAILED'
-        try:
-            patch_files = self.get_patch_files(self.patch_path, self.filters)
-            if not patch_files:
-                logger.error('No files in %s' % self.patch_path)
-            for absolute_path, relative_path in patch_files:
-                # installed_path is full install path,
-                # for example: /usr/lib/python2.7/dist-packages/nova/conductor/manager.py
-                openstack_installed_file = os.path.join(self.openstack_install_path, relative_path)
-                # self.bak_patched_file(openstack_installed_file, relative_path)
+        patch_files = self.get_patch_files(self.patch_path, self.filters)
+        if not patch_files:
+            logger.error('No files in %s' % self.patch_path)
+        for absolute_path, relative_path in patch_files:
+            # installed_path is full install path,
+            # for example: /usr/lib/python2.7/dist-packages/nova/conductor/manager.py
+            openstack_installed_file = os.path.join(self.openstack_install_path, relative_path)
+            # self.bak_patched_file(openstack_installed_file, relative_path)
 
-                copy_dir = os.path.dirname(openstack_installed_file)
+            copy_dir = os.path.dirname(openstack_installed_file)
 
-                # cp_result = CommonCMD.cp_to(absolute_path, openstack_installed_file)
-                ssh = SSHConnection(self.host_ip, 'root', 'Huawei@CLOUD8!')
+            ssh = SSHConnection(self.host_ip, 'root', 'Huawei@CLOUD8!')
+            # cp_result = CommonCMD.cp_to(absolute_path, openstack_installed_file)
+            try:
                 if not stat.S_ISDIR(ssh.get_sftp().stat(copy_dir).st_mode):
-                    print('Need to create dir.')
+                    log.info('create dir: %s' % copy_dir)
                     ssh.get_sftp().mkdir(copy_dir)
                 ssh.put(absolute_path, openstack_installed_file)
+            except IOError, e:
+                if e.args[1] == 'No such file':
+                    log.info('There is no such dir in host: %s, create dir: %s' % (self.host_ip, copy_dir))
+                    ssh.get_sftp().mkdir(copy_dir)
+                else:
+                     error_message = 'Exception occure when copy file<%s>, Exception.args: %s' \
+                                % (openstack_installed_file, e.args)
+                     log.error(error_message)
+                     print(error_message)
+            except Exception, e:
+                error_message = 'Exception occure when copy file<%s>, Exception.args: %s' \
+                                % (openstack_installed_file, e.args)
+                log.error(error_message)
+                print(error_message)
+
+            finally:
                 ssh.close()
-                result = 'SUCCESS'
-        except:
-            logger.error('Exception occur when install patch: %s, Exception: %s' %
-                                (self.patch_path, traceback.format_exc()))
-            print('Exception occur when install patch: %s, Exception: %s' %
-                                (self.patch_path, traceback.format_exc()))
+
+        result = 'SUCCESS'
         return result
 
 class PatchesTool(object):
