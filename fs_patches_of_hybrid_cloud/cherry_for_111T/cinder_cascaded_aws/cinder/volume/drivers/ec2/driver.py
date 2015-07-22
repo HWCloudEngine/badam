@@ -159,12 +159,12 @@ class AwsEc2VolumeDriver(driver.VolumeDriver):
         pass
 
     def _get_provider_volumeid_from_volume(self, volume):
-        if not volume['provider_location']:
+        if not volume.get('provider_location',None):
             ctx = cinder.context.get_admin_context()
             metadata = self.db.volume_metadata_get(ctx, volume['id'])
-            return metadata['provider_volume_id']
+            return metadata.get('provider_volume_id',None)
         else:
-            return volume['provider_location']
+            return volume.get('provider_location',None)
 
     def delete_volume(self, volume):
         """Delete a volume."""
@@ -175,7 +175,7 @@ class AwsEc2VolumeDriver(driver.VolumeDriver):
 
         provider_volumes = self.adpter.list_volumes(ex_volume_ids=[provider_volume_id])
         if not provider_volumes:
-            LOG.error('provider_volume %s is not found' % volume['provider_location'].id)
+            LOG.error('provider_volume  is not found')
             return
             #raise exception.VolumeNotFound(volume_id=volume['id'])
         elif len(provider_volumes) > 1:
