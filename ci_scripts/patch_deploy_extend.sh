@@ -46,23 +46,23 @@ prepare() {
 
 
     echo "copy file ..."
-    cp -rf ${GIT_CODE_DIR}"cinder_cascaded_aws/cinder"/*  ./patches_tool/aws_patch/code/cinder/
-    cp -rf ${GIT_CODE_DIR}"neutron_cascaded_aws/neutron"/*  ./patches_tool/aws_patch/code/neutron/
-    cp -rf ${GIT_CODE_DIR}"nova_cascaded/nova/virt/aws"/*  ./patches_tool/aws_patch/code/nova/virt/aws/
-    cp -rf ${GIT_CODE_DIR}"nova_cascaded/nova/virt/vtep"/*  ./patches_tool/aws_patch/code/nova/virt/vtep/
+    cp -rf ${GIT_CODE_DIR}"cinder_cascaded_aws/cinder"  ./patches_tool/aws_patch/code/
+    cp -rf ${GIT_CODE_DIR}"neutron_cascaded_aws/neutron"  ./patches_tool/aws_patch/code/
+    cp -rf ${GIT_CODE_DIR}"nova_cascaded/nova/virt/aws"  ./patches_tool/aws_patch/code/nova/virt/
+    cp -rf ${GIT_CODE_DIR}"nova_cascaded/nova/virt/vtep"  ./patches_tool/aws_patch/code/nova/virt/
 
 
-    cp -rf ${GIT_CODE_DIR}"cinder_cascaded_normal/cinder"/*  ./patches_tool/vcloud_patch/code/cinder/
-    cp -rf ${GIT_CODE_DIR}"nova_cascaded/nova/virt/vcloudapi"/*  ./patches_tool/vcloud_patch/code/nova/virt/vcloudapi/
-    cp -rf ${GIT_CODE_DIR}"nova_cascaded/nova/virt/vmwareapi"/*  ./patches_tool/vcloud_patch/code/nova/virt/vmwareapi/
-    cp -rf ${GIT_CODE_DIR}"nova_cascaded/nova/virt/vtep"/*  ./patches_tool/vcloud_patch/code/nova/virt/vtep/
+    cp -rf ${GIT_CODE_DIR}"cinder_cascaded_normal/cinder"  ./patches_tool/vcloud_patch/code/
+    cp -rf ${GIT_CODE_DIR}"nova_cascaded/nova/virt/vcloudapi"  ./patches_tool/vcloud_patch/code/nova/virt/
+    cp -rf ${GIT_CODE_DIR}"nova_cascaded/nova/virt/vmwareapi"  ./patches_tool/vcloud_patch/code/nova/virt/
+    cp -rf ${GIT_CODE_DIR}"nova_cascaded/nova/virt/vtep"  ./patches_tool/vcloud_patch/code/nova/virt/
 
 
-    cp -rf ${GIT_CODE_DIR}"cinder_cascading_proxy_aws/cinder"/*  ./patches_tool/hybrid_cloud_patches/aws_proxy/cinder/
-    cp -rf ${GIT_CODE_DIR}"cinder_cascading_proxy_normal/cinder"/*  ./patches_tool/hybrid_cloud_patches/cascading/cinder/
-    cp -rf ${GIT_CODE_DIR}"cinder_cascading/cinder/volume"/*  ./patches_tool/hybrid_cloud_patches/cascading/cinder/volume/
-    cp -rf ${GIT_CODE_DIR}"nova_cascading/nova/api"/*  ./patches_tool/hybrid_cloud_patches/cascading/nova/api/
-    cp -rf ${GIT_CODE_DIR}"cinder_cascading_proxy_normal/cinder"/*  ./patches_tool/hybrid_cloud_patches/vcloud_proxy/cinder/
+    cp -rf ${GIT_CODE_DIR}"cinder_cascading_proxy_aws/cinder"  ./patches_tool/hybrid_cloud_patches/aws_proxy/
+    cp -rf ${GIT_CODE_DIR}"cinder_cascading_proxy_normal/cinder"  ./patches_tool/hybrid_cloud_patches/cascading/
+    cp -rf ${GIT_CODE_DIR}"cinder_cascading/cinder/volume"  ./patches_tool/hybrid_cloud_patches/cascading/cinder/
+    cp -rf ${GIT_CODE_DIR}"nova_cascading/nova/api"  ./patches_tool/hybrid_cloud_patches/cascading/nova/
+    cp -rf ${GIT_CODE_DIR}"cinder_cascading_proxy_normal/cinder"  ./patches_tool/hybrid_cloud_patches/vcloud_proxy/
 
     echo "tar patches_tool.tar ..."
     tar -cf ./patches_tool.tar ./patches_tool >/dev/null 2>&1
