@@ -4,7 +4,7 @@ try:
     from lxml import etree as ET
 except ImportError:
     from xml.etree import ElementTree as ET
-
+import copy
 import base64
 from hashlib import sha1
 import hmac
@@ -26,28 +26,119 @@ from libcloud.storage.drivers.s3 import S3StorageDriver
 from libcloud.storage.drivers.s3 import S3APSEStorageDriver
 from libcloud.utils.py3 import b, basestring, ensure_string
 from libcloud.utils.py3 import urlencode
+from libcloud.utils.py3 import PY3, PY25
 from libcloud.utils.xml import fixxpath, findtext, findattr, findall
 from libcloud.compute.drivers.ec2 import EC2Connection
 from libcloud.compute.types import NodeState, KeyPairDoesNotExistError, \
     StorageVolumeState
 from libcloud.compute.drivers.ec2 import RESOURCE_EXTRA_ATTRIBUTES_MAP
+from libcloud.compute.drivers.ec2 import EC2Response
 import subprocess
 from libcloud.storage.base import Container, Object
 from functools import wraps
 import shutil
 import os
-
+import random
+from libcloud.common.types import (InvalidCredsError, MalformedResponseError,
+                                   LibcloudError)
+from libcloud.storage.types import Provider
+from libcloud.storage.providers import get_driver
+from libcloud.storage.drivers.s3 import S3APSEConnection
+from libcloud.storage.drivers.s3 import S3Connection
+from libcloud.storage.drivers.s3 import S3EUWestConnection
+from libcloud.storage.drivers.s3 import S3USWestConnection
+from libcloud.storage.drivers.s3 import S3USWestOregonConnection
+from libcloud.storage.drivers.s3 import S3APNEConnection
+from libcloud.utils.misc import lowercase_keys
 
 API_VERSION = '2015-03-01'
 #NAMESPACE = 'http://ec2.amazonaws.com/doc/%s/' % (API_VERSION)
 EXPIRATION_SECONDS=60*60
-MAX_RETRY_COUNT=5
+MAX_RETRY_COUNT=8
 CHUNK_SIZE = 1024*4
+
+class AwsRegion:
+    US_EAST_1 = 'us-east-1'
+    US_WEST_1 = 'us-west-1'
+    US_WEST_2 = 'us-west-2'
+    EU_WEST_1 = 'eu-west-1'
+    AP_NORTHEAST_1 = 'ap-northeast-1'
+    AP_SOUTHEAST_1='ap-southeast-1'
+    
+DRIVER_INFO={
+             AwsRegion.US_EAST_1:{'connectionCls': S3Connection,'name':'Amazon S3 (standard)','ex_location_name':''},
+             AwsRegion.US_WEST_1:{'connectionCls': S3USWestConnection,'name':'Amazon S3 (us-west-1)','ex_location_name':'us-west-1'},
+             AwsRegion.US_WEST_1:{'connectionCls': S3USWestOregonConnection,'name':'Amazon S3 (us-west-2)','ex_location_name':'us-west-2'},
+             AwsRegion.EU_WEST_1:{'connectionCls': S3EUWestConnection,'name':'Amazon S3 (eu-west-1)','ex_location_name':'EU'},
+             AwsRegion.AP_NORTHEAST_1:{'connectionCls': S3APNEConnection,'name':'Amazon S3 (ap-northeast-1)','ex_location_name':'ap-northeast-1'},
+             AwsRegion.AP_SOUTHEAST_1:{'connectionCls': S3APSEConnection,'name':'Amazon S3 (ap-southeast-1)','ex_location_name':'ap-southeast-1'}
+             }
+class HttpException(Exception):
+    msg_fmt = "request failed"
+    def __init__(self,status_code,status_text,message):
+        super(HttpException,self).__init__(message)
+        self.status_code = status_code
+        self.status_text = status_text
+    
+
+class  EC2ExtResponse(EC2Response):
+    def __init__(self, response, connection):
+        """
+        :param response: HTTP response object. (optional)
+        :type response: :class:`httplib.HTTPResponse`
+
+        :param connection: Parent connection object.
+        :type connection: :class:`.Connection`
+        """
+        self.connection = connection
+
+        # http.client In Python 3 doesn't automatically lowercase the header
+        # names
+        self.headers = lowercase_keys(dict(response.getheaders()))
+        self.error = response.reason
+        self.status = response.status
+
+        # This attribute is set when using LoggingConnection.
+        original_data = getattr(response, '_original_data', None)
+
+        if original_data:
+            # LoggingConnection already decompresses data so it can log it
+            # which means we don't need to decompress it here.
+            self.body = response._original_data
+        else:
+            self.body = self._decompress_response(body=response.read(),
+                                                  headers=self.headers)
+
+        if PY3:
+            self.body = b(self.body).decode('utf-8')
+
+        if not self.success():
+            
+            try:
+                body = ET.XML(self.body)
+            except:
+                raise MalformedResponseError("Failed to parse XML",
+                                         body=self.body, driver=EC2NodeDriver)
+
+            for err in body.findall('Errors/Error'):
+                code, message = err.getchildren() 
+            raise HttpException(self.status,code.text,self.parse_error())
+            #raise Exception(self.parse_error())
+
+        self.object = self.parse_body()
+
+
+
+
 class HuaweiConnection(EC2Connection):
     """
     Connection class for Ec2Adapter
     """
     version = API_VERSION
+    responseCls = EC2ExtResponse
+    
+class EC2ExtConnection(EC2Connection):
+    responseCls = EC2ExtResponse
 
 class RetryDecorator(object):
     """Decorator for retrying a function upon suggested exceptions.
@@ -59,7 +150,7 @@ class RetryDecorator(object):
     exception is not in the list of suggested exceptions.
     """
 
-    def __init__(self, max_retry_count=-1, inc_sleep_time=3,
+    def __init__(self, max_retry_count=-1, inc_sleep_time=5,
                  max_sleep_time=60, exceptions=()):
         """Configure the retry object using the input params.
 
@@ -93,65 +184,156 @@ class RetryDecorator(object):
                     try:
                         return f(*args, **kwargs)
                     except self._exceptions as e:
+                        error_info='Second simultaneous read on fileno'
                         error_message= e.message
-                        retry_error_message=['']
-                        if error_message not in retry_error_message:
-                            return 
+                        retry_error_message=['','Tunnel connection failed: 503 Service Unavailable',
+                                             'Tunnel connection failed: 502 Bad Gateway',"'NoneType' object has no attribute 'makefile'"]
+                        if error_message is None:
+                            raise e
+                        if  error_message not in retry_error_message and  not (error_info in error_message):
+                            raise e
                         time.sleep(mdelay)
                         mtries -= 1
-                        mdelay += self._inc_sleep_time
+                        mdelay =random.randint(3,10)
                         if mdelay >= self._max_sleep_time:
                             mdelay=self._max_sleep_time
                 return f(*args, **kwargs)
     
             return f_retry  # true decorator
- 
+        
+class ErrorDecorator(object):
+    """Decorator for catching  suggested exceptions.
+
+    The decorated function is  catching the suggested exceptions
+    """
+
+    def __init__(self,exceptions=()):
+        
+        """Configure the decorator object using the input params.
+        :param exceptions: suggested exceptions for which the function must 
+                           return []
+        """
+        self._exceptions = exceptions  
+        
+    def __call__(self, f):
+            @wraps(f)
+            def f_retry(*args, **kwargs):
+                try:
+                    return f(*args, **kwargs)
+                except self._exceptions as e:
+                    status_text= e.status_text
+                    empty_error_message=['InvalidAMIID.NotFound','InvalidInstanceID.NotFound','InvalidZone.NotFound','InvalidVpnGatewayID.NotFound',
+                                         'InvalidVpnGatewayAttachment.NotFound','InvalidVpnConnectionID.NotFound','InvalidVpcPeeringConnectionID.NotFound',
+                                         'InvalidVpcID.NotFound','InvalidVpcEndpointId.NotFound','InvalidVolume.NotFound','InvalidSubnetID.NotFound',
+                                         'InvalidSpotInstanceRequestID.NotFound','InvalidSpotDatafeed.NotFound','InvalidSnapshot.NotFound',
+                                         'InvalidSecurityGroupID.NotFound','InvalidRouteTableID.NotFound','InvalidRoute.NotFound',
+                                         'InvalidReservationID.NotFound','InvalidPrefixListId.NotFound','InvalidPermission.NotFound','InvalidNetworkInterfaceID.NotFound',
+                                         'InvalidNetworkAclID.NotFound','InvalidNetworkAclEntry.NotFound','InvalidKeyPair.NotFound','InvalidInternetGatewayID.NotFound',
+                                         'InvalidInstanceID.NotFound','InvalidGroup.NotFound','InvalidGatewayID.NotFound','InvalidExportTaskID.NotFound',
+                                         'InvalidCustomerGatewayID.NotFound','InvalidBundleID.NotFound','InvalidAttachmentID.NotFound','InvalidAttachment.NotFound',
+                                         'InvalidAssociationID.NotFound','InvalidAllocationID.NotFound','InvalidAddressID.NotFound','InvalidAddress.NotFound']
+                    if status_text  in empty_error_message:
+                        return []
+                    else:
+                        raise e
+                return f(*args, **kwargs)
+            return f_retry  # true decorator       
+  
 class Ec2Adapter(EC2NodeDriver):
-    connectionCls= EC2Connection
+    connectionCls= EC2ExtConnection
     
     def __init__(self, key, secret=None, secure=False, host=None, port=None,
-                 region='ap-southeast-1a', **kwargs):
+                 region='ap-southeast-1', **kwargs):
         self.helper = Ec2Adapter2(key, secret, secure, host, port, region, **kwargs)
         self.name_space  = 'http://ec2.amazonaws.com/doc/%s/' % (self.connectionCls.version)
         super(Ec2Adapter, self).__init__(key=key, secret=secret,
                                             secure=secure, host=host,
                                             port=port,region=region,**kwargs)
         self.region=region
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError)) 
     def create_export_instance_task(self, instance_id, des_loc,disk_image_format='VMDK', 
                                     target_environment='VMWare', **kwargs):
-        
+        """
+        Exports a running or stopped instance to an S3 bucket
+        :param instance_id:
+        :type str
+        :param des_loc:S3Bucket name
+        :type str
+        :param disk_image_format: The format for the exported image
+        :type str
+        :Valid Values: VMDK | RAW | VHD
+        :param target_environment: The target virtualization environment
+        :type str
+        :Valid Values: citrix | vmware | microsoft
+        :param kwargs:
+        :return: task object
+        """
         return self.helper.create_export_instance_task(instance_id, des_loc,disk_image_format, 
                                     target_environment, **kwargs)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError)) 
     def create_export_volume_task(self, volume_id,instance_id, des_loc, des_filename, **kwargs):
         return self.helper.create_export_volume_task(volume_id,instance_id, des_loc, des_filename, **kwargs)
      
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))    
     def create_import_image_task(self, src_loc, src_file, **kwargs):
+        """
+        import a image to provider from a file
+
+        :param src_loc: s3 bucket name
+        :type str
+        :param src_file: s3 key
+        :type str
+        :param kwargs: other parameters
+        :return: import task object
+        """
         return self.helper.create_import_image_task(src_loc, src_file, **kwargs)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))     
     def create_import_volume_task(self, src_loc, src_file, src_file_format,src_file_size,
                                    volume_size, **kwargs):
+        """
+        :param src_loc: s3 bucket and directory of source file
+        :type str
+        :param src_file: souce file name in s3
+        :type str
+        :param src_file_format: source file format.
+        :type str
+         valid value: VMDK, RAW, VHD
+        :param volume_size:The size of the volume, in GiB
+        :type long 
+        :param volume_loc: The Availability Zone for the resulting EBS volume
+        :type str 
+        :return: import task object
+        """
         return self.helper.create_import_volume_task( src_loc, src_file, src_file_format,src_file_size,
                       volume_size, **kwargs)
         
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError)) 
     def cancel_task(self, task_obj, **kwargs):
+        """
+        cancels an active conversion task
+        :param task_obj
+        :type TaskBase or the subclass of TaskBase
+        """
         return self.helper.cancel_task( task_obj,**kwargs)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))    
     def get_task_info(self, task_obj, **kwargs):
+        """
+        Describes one of your  task
+        :param task_obj
+        :type TaskBase or the subclass of TaskBase
+        """
         return self.helper.get_task_info(task_obj, **kwargs)
     
+    @ErrorDecorator(exceptions=(HttpException)) 
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))    
     def list_volumes(self, node=None, ex_volume_ids=None, ex_filters=None):
@@ -197,12 +379,12 @@ class Ec2Adapter(EC2NodeDriver):
         ]
         return volumes
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError)) 
     def attach_volume(self, node, volume, device):
         return super(Ec2Adapter, self).attach_volume(node, volume, device)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def copy_image(self, image, source_region, name=None, description=None):
         """
@@ -228,7 +410,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).copy_image(image, source_region, name=name, description=description)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def create_image(self, node, name, description=None, reboot=False,
                      block_device_mapping=None):
@@ -270,12 +452,12 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).create_image(node, name, description=description, reboot=reboot,block_device_mapping=block_device_mapping)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def create_key_pair(self, name):
         return super(Ec2Adapter, self).create_key_pair(name)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def create_node(self, **kwargs):
         """
@@ -327,10 +509,179 @@ class Ec2Adapter(EC2NodeDriver):
         :keyword    ex_placement_group: The name of the placement group to
                                         launch the instance into.
         :type       ex_placement_group: ``str``
+        
+        :keyword    ex_network_interfaces: network interfaces. 
+        :type   ex_network_interfaces `` list NetworkInterface ``
+         
         """
-        return super(Ec2Adapter, self).create_node(**kwargs)
+        
+        image = kwargs["image"]
+        size = kwargs["size"]
+        params = {
+            'Action': 'RunInstances',
+            'ImageId': image.id,
+            'MinCount': str(kwargs.get('ex_mincount', '1')),
+            'MaxCount': str(kwargs.get('ex_maxcount', '1')),
+            'InstanceType': size.id
+        }
+
+        if 'ex_security_groups' in kwargs and 'ex_securitygroup' in kwargs:
+            raise ValueError('You can only supply ex_security_groups or'
+                             ' ex_securitygroup')
+
+        # ex_securitygroup is here for backward compatibility
+        ex_security_groups = kwargs.get('ex_security_groups', None)
+        ex_securitygroup = kwargs.get('ex_securitygroup', None)
+        security_groups = ex_security_groups or ex_securitygroup
+
+        if security_groups:
+            if not isinstance(security_groups, (tuple, list)):
+                security_groups = [security_groups]
+
+            for sig in range(len(security_groups)):
+                params['SecurityGroup.%d' % (sig + 1,)] =\
+                    security_groups[sig]
+
+        if 'ex_security_group_ids' in kwargs and 'ex_subnet' not in kwargs:
+            raise ValueError('You can only supply ex_security_group_ids'
+                             ' combinated with ex_subnet')
+
+        security_group_ids = kwargs.get('ex_security_group_ids', None)
+
+        if security_group_ids:
+            if not isinstance(security_group_ids, (tuple, list)):
+                security_group_ids = [security_group_ids]
+
+            for sig in range(len(security_group_ids)):
+                params['SecurityGroupId.%d' % (sig + 1,)] =\
+                    security_group_ids[sig]
+
+        if 'location' in kwargs:
+            availability_zone = getattr(kwargs['location'],
+                                        'availability_zone', None)
+            if availability_zone:
+                if availability_zone.region_name != self.region_name:
+                    raise AttributeError('Invalid availability zone: %s'
+                                         % (availability_zone.name))
+                params['Placement.AvailabilityZone'] = availability_zone.name
+
+        if 'auth' in kwargs and 'ex_keyname' in kwargs:
+            raise AttributeError('Cannot specify auth and ex_keyname together')
+
+        if 'auth' in kwargs:
+            auth = self._get_and_check_auth(kwargs['auth'])
+            key = self.ex_find_or_import_keypair_by_key_material(auth.pubkey)
+            params['KeyName'] = key['keyName']
+
+        if 'ex_keyname' in kwargs:
+            params['KeyName'] = kwargs['ex_keyname']
+
+        if 'ex_userdata' in kwargs:
+            params['UserData'] = base64.b64encode(b(kwargs['ex_userdata']))\
+                .decode('utf-8')
+
+        if 'ex_clienttoken' in kwargs:
+            params['ClientToken'] = kwargs['ex_clienttoken']
+            
+        if image.extra is not None:   
+            block_device_mappings = image.extra.get('block_device_mapping')
+            ex_bdms=[]
+            if block_device_mappings is not None:
+                for block_device_mapping in block_device_mappings:
+                    if block_device_mapping.get('ebs') is not None:    
+                        bdm={'DeviceName':block_device_mapping.get('device_name'),'Ebs':{'DeleteOnTermination':block_device_mapping.get('ebs').get('delete',True),
+                                                                                  'VolumeSize':block_device_mapping.get('ebs').get('volume_size'),
+                                                                                  'SnapshotId':block_device_mapping.get('ebs').get('snapshot_id')}}
+                        ex_bdms.append(bdm)
+        if 'ex_blockdevicemappings' in kwargs and kwargs['ex_blockdevicemappings'] is not None:
+            ex_blockdevicemappings = kwargs['ex_blockdevicemappings'] 
+            bdms=copy.deepcopy(ex_blockdevicemappings)
+            
+            bdms.extend(ex_bdms)
+            params.update(self._get_block_device_mapping_params(
+                                                                bdms))
+        else:
+            params.update(self._get_block_device_mapping_params(
+                                                                ex_bdms))
+        if 'ex_iamprofile' in kwargs:
+            if not isinstance(kwargs['ex_iamprofile'], basestring):
+                raise AttributeError('ex_iamprofile not string')
+
+            if kwargs['ex_iamprofile'].startswith('arn:aws:iam:'):
+                params['IamInstanceProfile.Arn'] = kwargs['ex_iamprofile']
+            else:
+                params['IamInstanceProfile.Name'] = kwargs['ex_iamprofile']
+
+        if 'ex_ebs_optimized' in kwargs:
+            params['EbsOptimized'] = kwargs['ex_ebs_optimized']
+
+        if 'ex_subnet' in kwargs:
+            params['SubnetId'] = kwargs['ex_subnet'].id
+
+        if 'ex_placement_group' in kwargs and kwargs['ex_placement_group']:
+            params['Placement.GroupName'] = kwargs['ex_placement_group']
+            
+       
+        if 'ex_network_interfaces' in kwargs and kwargs['ex_network_interfaces']:
+            ex_network_interfaces = kwargs['ex_network_interfaces']
+            params.update(self._get_network_interface_params(ex_network_interfaces))
+           
+        object = self.connection.request(self.path, params=params).object
+        nodes = self._to_nodes(object, 'instancesSet/item')
+
+        for node in nodes:
+            tags = {'Name': kwargs['name']}
+            if 'ex_metadata' in kwargs:
+                tags.update(kwargs['ex_metadata'])
+
+            try:
+                self.ex_create_tags(resource=node, tags=tags)
+            except Exception:
+                continue
+
+            node.name = kwargs['name']
+            node.extra.update({'tags': tags})
+
+        if len(nodes) == 1:
+            return nodes[0]
+        else:
+            return nodes
+   
+   
+    def _get_network_interface_params(self,network_interfaces):
+        params = {}
+        for index,network_interface in enumerate(network_interfaces):
+            index += 1
+            if network_interface.device_index is  None and network_interface.device_index in params.values():
+                raise   AttributeError(
+                    'network_interface %s device_index %sin ex_network_interfaces '
+                    'not unique' % (network_interface,network_interface.device_index))
+            else:
+                params['NetworkInterface.%d.DeviceIndex' %(index)]=network_interface.device_index
+            
+            if network_interface.subnet_id is not None and network_interface.id is not None:
+                raise AttributeError('network_interface %s may not specify both a network interface ID and a subnet' 
+                                       %network_interface)
+            elif network_interface.subnet_id is  None and network_interface.id is  None:
+                raise AttributeError('network_interface %s requires either a subnet or a network interface ID' 
+                                       %network_interface)
+            elif network_interface.id is not None:
+                params['NetworkInterface.%d.NetworkInterfaceId' %(index)]=network_interface.id
+            else:
+                params['NetworkInterface.%d.SubnetId' %(index)]=network_interface.subnet_id
+            
+            if network_interface.id is not None and network_interface.delete_on_termination is True:
+                raise AttributeError('network_interface %s  may not specify a network interface ID and delete on termination as true'
+                                        %network_interface)
+                
+            params['NetworkInterface.%d.DeleteOnTermination' %(index)]=network_interface.delete_on_termination 
+            
+            if network_interface.security_groups is not None:
+                params['NetworkInterface.%d.Groups' %(index)]=network_interface.security_groups
+      
+        return params
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def create_volume(self, size, name, location=None, snapshot=None,
                       ex_volume_type='standard', ex_iops=None):
@@ -368,7 +719,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).create_volume(size, name, location=location, snapshot=snapshot,ex_volume_type=ex_volume_type, ex_iops=ex_iops)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def create_volume_snapshot(self, volume, name=None):
         """
@@ -384,7 +735,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).create_volume_snapshot(volume, name=name)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def delete_image(self, image):
         """
@@ -399,32 +750,32 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).delete_image( image)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def delete_key_pair(self, key_pair):
         return  super(Ec2Adapter, self).delete_key_pair(key_pair)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def destroy_node(self, node):
         return  super(Ec2Adapter, self).destroy_node(node)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def destroy_volume(self, volume):
         return  super(Ec2Adapter, self).destroy_volume(volume)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def destroy_volume_snapshot(self, snapshot):
         return  super(Ec2Adapter, self).destroy_volume_snapshot(snapshot)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def detach_volume(self, volume):
         return super(Ec2Adapter, self).detach_volume(volume)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_allocate_address(self, domain='standard'):
         """
@@ -439,7 +790,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_allocate_address(domain=domain)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_associate_address_with_node(self, node, elastic_ip, domain=None):
         """
@@ -461,7 +812,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_associate_address_with_node(node, elastic_ip, domain=domain)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_associate_addresses(self, node, elastic_ip, domain=None):
         """
@@ -473,7 +824,7 @@ class Ec2Adapter(EC2NodeDriver):
                                                    elastic_ip=elastic_ip,
                                                    domain=domain)
         
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))   
     def ex_associate_route_table(self, route_table, subnet):
         """
@@ -493,7 +844,7 @@ class Ec2Adapter(EC2NodeDriver):
 
         return super(Ec2Adapter, self).ex_associate_route_table(route_table, subnet)
 
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_attach_internet_gateway(self, gateway, network):
         """
@@ -509,7 +860,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_attach_internet_gateway(gateway, network)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_attach_network_interface_to_node(self, network_interface,
                                             node, device_index):
@@ -531,7 +882,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_attach_network_interface_to_node(network_interface, node, device_index)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_authorize_security_group(self, name, from_port, to_port, cidr_ip,
                                     protocol='tcp'):
@@ -560,7 +911,7 @@ class Ec2Adapter(EC2NodeDriver):
 
         return  super(Ec2Adapter, self).ex_authorize_security_group(name, from_port, to_port, cidr_ip,protocol=protocol)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))       
     def ex_authorize_security_group_egress(self, id, from_port, to_port,
                                            cidr_ips, group_pairs=None,
@@ -605,7 +956,7 @@ class Ec2Adapter(EC2NodeDriver):
 
         return super(Ec2Adapter, self).ex_authorize_security_group_egress(id, from_port, to_port,cidr_ips, group_pairs=group_pairs, protocol=protocol)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))   
     def ex_authorize_security_group_ingress(self, id, from_port, to_port,
                                             cidr_ips=None, group_pairs=None,
@@ -650,7 +1001,7 @@ class Ec2Adapter(EC2NodeDriver):
                                             cidr_ips=cidr_ips, group_pairs=group_pairs,
                                             protocol=protocol)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_authorize_security_group_permissive(self, name):
         """
@@ -666,7 +1017,7 @@ class Ec2Adapter(EC2NodeDriver):
 
         return super(Ec2Adapter, self).ex_authorize_security_group_permissive(name)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_change_node_size(self, node, new_size):
         """
@@ -684,7 +1035,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_change_node_size(node, new_size)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_create_internet_gateway(self, name=None):
         """
@@ -694,7 +1045,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_create_internet_gateway(name=name)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_create_keypair(self, name):
         """
@@ -710,7 +1061,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_create_keypair(name)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_create_network(self, cidr_block, name=None,
                           instance_tenancy='default'):
@@ -733,7 +1084,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_create_network(cidr_block, name=name,instance_tenancy=instance_tenancy)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_create_network_interface(self, subnet, name=None,
                                     description=None,
@@ -811,7 +1162,7 @@ class Ec2Adapter(EC2NodeDriver):
 
         return interface
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_create_placement_group(self, name):
         """
@@ -824,7 +1175,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_create_placement_group(name)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_create_route(self, route_table, cidr,
                         internet_gateway=None, node=None,
@@ -862,7 +1213,7 @@ class Ec2Adapter(EC2NodeDriver):
                         internet_gateway=internet_gateway, node=node,
                         network_interface=network_interface, vpc_peering_connection=vpc_peering_connection)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_create_route_table(self, network, name=None):
         """
@@ -875,7 +1226,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_create_route_table(network, name=name)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_create_security_group(self, name, description, vpc_id=None):
         """
@@ -896,7 +1247,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_create_security_group(name, description, vpc_id=vpc_id)
         
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_create_subnet(self, vpc_id, cidr_block,
                          availability_zone, name=None):
@@ -922,7 +1273,7 @@ class Ec2Adapter(EC2NodeDriver):
         return  super(Ec2Adapter, self).ex_create_subnet(vpc_id, cidr_block,
                          availability_zone, name=name)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_create_tags(self, resource, tags):
         """
@@ -940,7 +1291,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_create_tags(resource, tags)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_delete_internet_gateway(self, gateway):
         """
@@ -953,7 +1304,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_delete_internet_gateway(gateway)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_delete_keypair(self, keypair):
         """
@@ -968,7 +1319,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_delete_keypair(keypair)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_delete_network(self, vpc):
         """
@@ -981,7 +1332,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_delete_network(vpc)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_delete_network_interface(self, network_interface):
         """
@@ -994,7 +1345,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_delete_network_interface(network_interface)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_delete_placement_group(self, name):
         """
@@ -1007,7 +1358,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_delete_placement_group(name)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_delete_route(self, route_table, cidr):
         """
@@ -1024,7 +1375,7 @@ class Ec2Adapter(EC2NodeDriver):
         return super(Ec2Adapter, self).ex_delete_route(route_table, cidr)
         
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_delete_route_table(self, route_table):
         """
@@ -1038,7 +1389,7 @@ class Ec2Adapter(EC2NodeDriver):
         return super(Ec2Adapter, self).ex_delete_route_table( route_table)
          
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_delete_security_group(self, name):
         """
@@ -1051,7 +1402,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_delete_security_group(name)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_delete_security_group_by_id(self, group_id):
         """
@@ -1064,7 +1415,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_delete_security_group_by_id(group_id)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_delete_security_group_by_name(self, group_name):
         """
@@ -1077,7 +1428,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return  super(Ec2Adapter, self).ex_delete_security_group_by_name(group_name)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_delete_subnet(self, subnet):
         """
@@ -1090,7 +1441,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return  super(Ec2Adapter, self).ex_delete_subnet(subnet)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_delete_tags(self, resource, tags):
         """
@@ -1107,7 +1458,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_delete_tags(resource, tags)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_describe_addresses(self, nodes):
         """
@@ -1123,7 +1474,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_describe_addresses(nodes)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_describe_keypair(self, name):
         """
@@ -1139,7 +1490,7 @@ class Ec2Adapter(EC2NodeDriver):
 
         return super(Ec2Adapter, self).ex_describe_keypair(name)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))   
     def ex_describe_tags(self, resource):
         """
@@ -1155,7 +1506,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_describe_tags( resource)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_detach_internet_gateway(self, gateway, network):
         """
@@ -1171,7 +1522,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_detach_internet_gateway(gateway, network)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_detach_network_interface(self, attachment_id, force=False):
         """
@@ -1189,7 +1540,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_detach_network_interface(attachment_id, force=force)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_disassociate_address(self, elastic_ip, domain=None):
         """
@@ -1207,7 +1558,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_disassociate_address(elastic_ip, domain=domain)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_dissociate_route_table(self, subnet_association):
         """
@@ -1223,7 +1574,7 @@ class Ec2Adapter(EC2NodeDriver):
 
         return  super(Ec2Adapter, self).ex_dissociate_route_table(subnet_association)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_get_console_output(self, node):
         """
@@ -1240,6 +1591,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_get_console_output(node)
     
+    @ErrorDecorator(exceptions=(HttpException)) 
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_list_internet_gateways(self, gateway_ids=None, filters=None):
@@ -1263,6 +1615,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_list_internet_gateways( gateway_ids=gateway_ids, filters=filters)
     
+    @ErrorDecorator(exceptions=(HttpException)) 
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_describe_all_addresses(self, only_associated=False):
@@ -1279,7 +1632,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_describe_all_addresses(only_associated=only_associated)
     
-    
+    @ErrorDecorator(exceptions=(HttpException)) 
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_get_security_groups(self, group_ids=None,
@@ -1305,7 +1658,7 @@ class Ec2Adapter(EC2NodeDriver):
 
         return super(Ec2Adapter, self).ex_get_security_groups(group_ids=group_ids,
                                group_names=group_names, filters=filters)
-    
+    @ErrorDecorator(exceptions=(HttpException)) 
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_list_availability_zones(self, only_available=True):
@@ -1324,17 +1677,34 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_list_availability_zones(only_available=only_available)
     
+    @ErrorDecorator(exceptions=(HttpException)) 
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
-    def ex_list_network_interfaces(self):
+    def ex_list_network_interfaces(self,network_interfaces=None,node=None,ex_filters=None):
+         
         """
         Return all network interfaces
 
         :return:    List of EC2NetworkInterface instances
         :rtype:     ``list`` of :class `EC2NetworkInterface`
         """
-        return super(Ec2Adapter, self).ex_list_network_interfaces()
-    
+        params = {'Action': 'DescribeNetworkInterfaces'}
+        
+        if node:
+            filters = {'attachment.instance-id': node.id}
+            params.update(self._build_filters(filters))
+            
+        if network_interfaces:
+            params.update(self._pathlist('NetworkInterfaceId', network_interfaces))
+
+        if ex_filters:
+            params.update(self._build_filters(ex_filters))
+
+        return self._to_interfaces(
+            self.connection.request(self.path, params=params).object
+        )
+
+    @ErrorDecorator(exceptions=(HttpException)) 
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_list_networks(self, network_ids=None, filters=None):
@@ -1356,6 +1726,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_list_networks(network_ids=network_ids, filters=filters)
     
+    @ErrorDecorator(exceptions=(HttpException)) 
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_list_placement_groups(self, names=None):
@@ -1369,6 +1740,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return  super(Ec2Adapter, self).ex_list_placement_groups(names=names)
     
+    @ErrorDecorator(exceptions=(HttpException)) 
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_list_reserved_nodes(self):
@@ -1383,6 +1755,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return  super(Ec2Adapter, self).ex_list_reserved_nodes()
     
+    @ErrorDecorator(exceptions=(HttpException)) 
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_list_route_tables(self, route_table_ids=None, filters=None):
@@ -1404,6 +1777,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_list_route_tables(route_table_ids=route_table_ids, filters=filters)
     
+    @ErrorDecorator(exceptions=(HttpException)) 
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_list_security_groups(self):
@@ -1415,7 +1789,8 @@ class Ec2Adapter(EC2NodeDriver):
         :rtype: ``list`` of ``str``
         """
         return super(Ec2Adapter, self).ex_list_security_groups()
-         
+    
+    @ErrorDecorator(exceptions=(HttpException))     
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_list_subnets(self, subnet_ids=None, filters=None):
@@ -1437,7 +1812,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return  super(Ec2Adapter, self).ex_list_subnets(subnet_ids=subnet_ids, filters=filters)
         
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_modify_image_attribute(self, image, attributes):
         """
@@ -1454,7 +1829,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return  super(Ec2Adapter, self).ex_modify_image_attribute(image, attributes)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_modify_instance_attribute(self, node, attributes):
         """
@@ -1472,7 +1847,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return  super(Ec2Adapter, self).ex_modify_instance_attribute(node, attributes)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_register_image(self, name, description=None, architecture=None,
                           image_location=None, root_device_name=None,
@@ -1525,7 +1900,7 @@ class Ec2Adapter(EC2NodeDriver):
                           ramdisk_id=ramdisk_id, virtualization_type=virtualization_type)
         
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_release_address(self, elastic_ip, domain=None):
         """
@@ -1543,7 +1918,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_release_address(elastic_ip, domain=domain)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_replace_route(self, route_table, cidr,
                          internet_gateway=None, node=None,
@@ -1581,7 +1956,7 @@ class Ec2Adapter(EC2NodeDriver):
                          network_interface=network_interface, vpc_peering_connection=vpc_peering_connection)
          
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_replace_route_table_association(self, subnet_association,
                                            route_table):
@@ -1606,7 +1981,7 @@ class Ec2Adapter(EC2NodeDriver):
         return super(Ec2Adapter, self).ex_replace_route_table_association(subnet_association,
                                            route_table)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_revoke_security_group_egress(self, id, from_port, to_port,
                                         cidr_ips=None, group_pairs=None,
@@ -1653,7 +2028,7 @@ class Ec2Adapter(EC2NodeDriver):
                                         protocol=protocol)
         
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_revoke_security_group_ingress(self, id, from_port, to_port,
                                          cidr_ips=None, group_pairs=None,
@@ -1698,7 +2073,7 @@ class Ec2Adapter(EC2NodeDriver):
                                          protocol=protocol)
         
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_start_node(self, node):
         """
@@ -1712,7 +2087,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_start_node(node)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def ex_stop_node(self, node):
         """
@@ -1726,6 +2101,7 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).ex_stop_node(node)
     
+    @ErrorDecorator(exceptions=(HttpException)) 
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def get_image(self, image_id):
@@ -1739,18 +2115,21 @@ class Ec2Adapter(EC2NodeDriver):
         :rtype: :class:`NodeImage`
 
         """
-        return super(Ec2Adapter, self).get_image(image_id)
+        image = super(Ec2Adapter, self).get_image(image_id)
+        return Image(image.id,image.name,image.driver,extra = image.extra)
     
+    @ErrorDecorator(exceptions=(HttpException)) 
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def get_key_pair(self, name):
         return super(Ec2Adapter, self).get_key_pair(name)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def import_key_pair_from_string(self, name, key_material):
         return super(Ec2Adapter, self).import_key_pair_from_string(name, key_material)
     
+    @ErrorDecorator(exceptions=(HttpException)) 
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def list_images(self, location=None, ex_image_ids=None, ex_owner=None,
@@ -1797,18 +2176,20 @@ class Ec2Adapter(EC2NodeDriver):
         return super(Ec2Adapter, self).list_images(location=location, ex_image_ids=ex_image_ids, ex_owner=ex_owner,
                     ex_executableby=ex_executableby, ex_filters=ex_filters)
     
+    @ErrorDecorator(exceptions=(HttpException)) 
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def list_key_pairs(self):
         return super(Ec2Adapter, self).list_key_pairs()
 
         
-    
+    @ErrorDecorator(exceptions=(HttpException)) 
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def list_locations(self):
         return  super(Ec2Adapter, self).list_locations()
      
+    @ErrorDecorator(exceptions=(HttpException)) 
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def list_nodes(self, ex_node_ids=None, ex_filters=None):
@@ -1830,10 +2211,10 @@ class Ec2Adapter(EC2NodeDriver):
         """
         return super(Ec2Adapter, self).list_nodes(ex_node_ids=ex_node_ids, ex_filters=ex_filters)
          
-    
+    @ErrorDecorator(exceptions=(HttpException)) 
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
-    def list_snapshots(self, snapshot=None, owner=None):
+    def list_snapshots(self, snapshot=None, owner=None,snapshot_ids=None, ex_filters=None):
         """
         Describe all snapshots.
 
@@ -1845,14 +2226,36 @@ class Ec2Adapter(EC2NodeDriver):
 
         :rtype: ``list`` of :class:`VolumeSnapshot`
         """
-        return  super(Ec2Adapter, self).list_snapshots(snapshot=snapshot, owner=owner)
+        params = {
+            'Action': 'DescribeSnapshots',
+        }
+        if snapshot:
+            params.update({
+                'SnapshotId.1': snapshot.id,
+            })
+        if owner:
+            params.update({
+                'Owner.1': owner,
+            })
+        
+        if snapshot_ids:
+            for index, snapshot_id in enumerate(snapshot_ids):
+                index += 1
+                params.update({'SnapshotId.%s' % (index): snapshot_id})
+            
+        if ex_filters:    
+            params.update(self._build_filters(ex_filters))
+            
+        response = self.connection.request(self.path, params=params).object
+        snapshots = self._to_snapshots(response)
+        return snapshots
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def reboot_node(self, node):
         return  super(Ec2Adapter, self).reboot_node(node)
     
-    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=3,max_sleep_time=60,
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))
     def export_volume(self,volume_id, des_loc, des_filename,cgw_host_id,cgw_host_ip=None, **kwargs):
         """
@@ -1989,6 +2392,7 @@ class Ec2Adapter(EC2NodeDriver):
             self.attach_volume(origin_attached_instance, volume, origin_mount_device)   
         return des_file
     
+    @ErrorDecorator(exceptions=(HttpException)) 
     def get_location(self,availability_zone_name):
         locations=self.list_locations()
         if locations is None:
@@ -2003,11 +2407,12 @@ class Ec2Adapter2(EC2NodeDriver):
      
     def __init__(self, key, secret=None, secure=False, host=None, port=None,
                  region='ap-southeast-1', **kwargs):
-        self._region=region
+        
         self.name_space  = 'http://ec2.amazonaws.com/doc/%s/' % (self.connectionCls.version)
         super(Ec2Adapter2, self).__init__(key=key, secret=secret,
                                             secure=secure, host=host,
                                             port=port,region=region,**kwargs)
+        self.region=region
         
     
     def create_import_image_task(self, src_loc, src_file, **kwargs):
@@ -2069,7 +2474,7 @@ class Ec2Adapter2(EC2NodeDriver):
         response = self.connection.request(self.path, params=params).object
         elem = response.find(
             fixxpath(xpath='conversionTask', namespace=self.name_space))
-        return self._to_import_volume_task_info(elem,manifest_file_name,src_loc,self)
+        return self._to_import_volume_task_info(elem,manifest_file_name,src_loc,src_file,self)
         
     
 
@@ -2266,7 +2671,7 @@ class Ec2Adapter2(EC2NodeDriver):
                          namespace=self.name_space)
         return ExportToS3Info(disk_image_format,container_format,s3_bucket,s3_key)  
     
-    def _to_import_volume_task_info(self,element,manifest_file_name,s3_bucket_name,driver):
+    def _to_import_volume_task_info(self,element,manifest_file_name,s3_bucket_name,src_file,driver):
         """
         Parse the XML element and return a conversion_task_info object.
         :rtype:     :class:`conversion_task_info`
@@ -2300,7 +2705,7 @@ class Ec2Adapter2(EC2NodeDriver):
   
         return ImportVolumeTask(conversion_task_id,driver,state,status_message,description,None,expiration_time,bytes_converted,
                                 availability_zone,image_format,image_size,image_import_manifest_url,volume_size,
-                                volume_id,manifest_file_name,s3_bucket_name)
+                                volume_id,manifest_file_name,s3_bucket_name,src_file)
         
     
     def _to_import_image_task_info(self,element,driver):
@@ -2342,10 +2747,27 @@ class Ec2Adapter2(EC2NodeDriver):
         
         
     
-class S3Adapter(S3APSEStorageDriver):   
+class S3Adapter(S3StorageDriver):   
     """
     s3Adapter
     """
+    def __init__(self, key, secret=None, secure=True, host=None, port=None,
+                 api_version=None, region=None, token=None,connectionCls=S3Connection, **kwargs):
+        self.connectionCls,self.name,self.ex_location_name=self._get_driver_info(region)
+        super(S3Adapter, self).__init__(key, secret=secret, secure=secure,
+                                        host=host, port=port,
+                                        api_version=api_version, region=region,
+                                        token=token, **kwargs)
+        
+        
+    def _get_driver_info(self,region):
+        if region is not None:
+            driver_info=DRIVER_INFO.get(region,None)
+            if driver_info is not None:
+                return driver_info.get('connectionCls',S3Connection),driver_info.get('name','Amazon S3 (standard)'),driver_info.get('ex_location_name','')
+                
+                
+    
     def upload_object(self, file_path, container, object_name, extra=None,
                       verify_hash=True, ex_storage_class=None):
         import boto
@@ -2390,7 +2812,29 @@ class S3Adapter(S3APSEStorageDriver):
         k = Key(bucket)
         k.key = object_name
         k.get_contents_to_filename(destination_path)
-
+        
+        
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
+                        exceptions=(Exception,ssl.SSLError)) 
+    def get_object(self, container_name, object_name):
+        return super(S3Adapter, self).get_object(container_name, object_name)
+    
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
+                        exceptions=(Exception,ssl.SSLError)) 
+    def delete_object(self, obj):
+        return super(S3Adapter, self).delete_object(obj)
+    
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
+                        exceptions=(Exception,ssl.SSLError)) 
+    def create_container(self, container_name):
+        return super(S3Adapter, self).create_container(container_name)
+    
+    @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
+                        exceptions=(Exception,ssl.SSLError)) 
+    def get_container(self, container_name):
+        return super(S3Adapter,self).get_container(container_name)
+    
+    
 
         
 class TASK_TYPE:
@@ -2433,8 +2877,12 @@ class TaskBase:
 
     def is_cancelled(self):
         return self.state == TASK_STATE.CANCELLED
-    
-    
+
+    def wait_for_completion(self):
+        raise NotImplementedError
+
+    def clean_up(self):
+        raise NotImplementedError
     
 class ImportImageTask(TaskBase):
     image_id=None
@@ -2549,10 +2997,11 @@ class ImportVolumeTask(TaskBase):
         volume_id=None
         manifest_file_name=None
         s3_bucket_name=None
+        src_file=None
         
         def __init__(self,task_id,driver,state,status_message=None,description=None,provider_task_id=None,expiration_time=None,bytes_converted=None,
                     availability_zone=None,image_format=None,image_size=None, image_import_manifest_url=None, volume_size=None,
-                    volume_id=None,manifest_file_name=None,s3_bucket_name=None):
+                    volume_id=None,manifest_file_name=None,s3_bucket_name=None,src_file=None):
             self.task_id=task_id
             self.driver=driver
             self.state=state
@@ -2570,6 +3019,7 @@ class ImportVolumeTask(TaskBase):
             self.name_space = 'http://ec2.amazonaws.com/doc/%s/' % (API_VERSION)
             self.manifest_file_name =manifest_file_name
             self.s3_bucket_name =s3_bucket_name
+            self.src_file=src_file
         
         def _cancel_task(self):
             params={
@@ -2588,7 +3038,7 @@ class ImportVolumeTask(TaskBase):
             params = {'Action': 'DescribeConversionTasks',
                       'ConversionTaskId.1':self.task_id}
             response = self.driver.connection.request(self.driver.path, params=params).object
-            task_infos = [self._to_import_volume_task_info(el,self.manifest_file_name,self.s3_bucket_name,self.driver) for el in response.findall(
+            task_infos = [self._to_import_volume_task_info(el,self.manifest_file_name,self.s3_bucket_name,self.src_file,self.driver) for el in response.findall(
                            fixxpath(xpath='conversionTasks/item', namespace=self.name_space))]
             if not task_infos:
                 raise TaskNotFound
@@ -2596,15 +3046,33 @@ class ImportVolumeTask(TaskBase):
                 raise MultiTaskConfusion
             return task_infos[0]
         
-        def _clear_tmp_file(self):
+        def _clean_tmp_file(self):
             if self.manifest_file_name is not None:
                 s3Driver=S3Adapter(self.driver.key,self.driver.secret,region=self.driver.region,secure=False)
-                s3_object=s3Driver.get_object(container_name=self.s3_bucket_name,object_name=self.manifest_file_name)
-                s3Driver.delete_object(s3_object)
-                   
+                s3_manifest_file_name=s3Driver.get_object(container_name=self.s3_bucket_name,object_name=self.manifest_file_name)
+                s3Driver.delete_object(s3_manifest_file_name)
+                s3_src_file=s3Driver.get_object(container_name=self.s3_bucket_name,object_name=self.src_file)
+                s3Driver.delete_object(s3_src_file)
+                
+
+        def clean_up(self):
+            return self._clean_tmp_file()
+
+        def wait_for_completion(self):
+
+            while not self.is_completed():
+                time.sleep(10)
+                if self.is_cancelled():
+                    # LOG.error('import volume fail!')
+                    raise ErrorImportVolumeFailure
+
+                # task = self.driver.get_task_info(task)
+
+                self.state = self.update_task_info().state
+
+
         
-        
-        def _to_import_volume_task_info(self,element,manifest_file_name,s3_bucket_name,driver):
+        def _to_import_volume_task_info(self,element,manifest_file_name,s3_bucket_name,src_file,driver):
             """
             Parse the XML element and return a conversion_task_info object.
             :rtype:     :class:`conversion_task_info`
@@ -2638,7 +3106,7 @@ class ImportVolumeTask(TaskBase):
       
             return ImportVolumeTask(conversion_task_id,driver,state,status_message,description,None,expiration_time,bytes_converted,
                                     availability_zone,image_format,image_size,image_import_manifest_url,
-                                    volume_size,volume_id,manifest_file_name,s3_bucket_name)
+                                    volume_size,volume_id,manifest_file_name,s3_bucket_name,src_file)
             
 class ExportInstanceTask(TaskBase):
     instance_id=None
@@ -2734,8 +3202,84 @@ class  MultiTaskConfusion(Exception):
     
 class TaskNotFound(Exception):
     msg_fmt = "Task not found"
+
+class ErrorImportVolumeFailure(Exception):
+    msg_fmt = 'Upload Volume Failure'
     
-class HttpException(Exception):
-    msg_fmt = "request failed"
+
+class NetworkInterface(EC2NetworkInterface):
+    """
+       the class of NetworkInterface
+    """
+    delete_on_termination = True
+    description = None
+    device_index = None
+    security_groups = None    
+    private_ip_address = None
+    subnet_id = None
+    
+    def __init__(self,id=None,name=None,state=None,delete_on_termination=True,description=None,device_index=None,security_groups=None,
+                  private_ip_address=None,subnet_id=None,extra=None): 
+        """
+        NetworkInterface constructor.
+
+        :param      id: networkInterface.id
+        :type       id: ``str``
+
+        :param      name: networkInterface.name
+        :type       name: `str`
+
+        :param      state: networkInterface state
+        :type       size: ``str``
+
+        :param      delete_on_termination :If set to true, the interface is deleted when the instance is terminated. 
+                        You can specify true only if creating a new network interface when launching an instance.
+        :type       delete_on_termination: ``boolean``
+
+        :param      description: description for NetworkInterface
+        :type       name: ``str``
+        
+        :param      device_index The index of the device on the instance for the network interface attachment.
+                       If you are specifying a network interface in a RunInstances request, you must provide the device index.
+        :type       device_index ``Integer``
+        
+        :param      security_groups The IDs of the security groups for the network interface
+        :type       security_groups ``list str``
+        
+        :param      private_ip_address The private IP address of the network interface
+        :type       private_ip_address ``str``
+        
+        :param      subnet_id The ID of the subnet associated with the network string
+        :type       subnet_id ``str``
+        
+        :param      extra: Optional provided specific attributes associated with
+                       this networkInterface.
+        :type       extra: ``dict``
+        
+        
+        """
+        super(NetworkInterface, self).__init__(id=id, name=name, state=state, extra=extra)
+        
+        self.delete_on_termination = delete_on_termination
+        self.description = description
+        self.device_index = device_index
+        self.security_groups = security_groups
+        self.private_ip_address = private_ip_address
+        self.subnet_id = subnet_id
+        
+        
+class Image(NodeImage):
+    def __init__(self, id, name, driver, extra=None):
+        super(Image,self).__init__(id, name, driver, extra=extra)
+        
+    def set_volume_delete(self,delete_on_termination):
+        if self.extra is not None:
+            block_device_mappings =  self.extra.get('block_device_mapping')
+            if block_device_mappings is not None:
+                for bdm in block_device_mappings:
+                    bdm.get('ebs')['delete']=delete_on_termination
+            
+    
+
     
  
