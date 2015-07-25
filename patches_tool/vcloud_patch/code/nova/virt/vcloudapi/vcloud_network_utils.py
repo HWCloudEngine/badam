@@ -33,10 +33,19 @@ from nova.openstack.common import uuidutils
 from nova.virt import driver
 from nova.virt.vcloudapi import vcenter_utils
 from nova.virt.vcloudapi import network_utils
-from nova.virt.vcloudapi.driver import CONF as vcloud_conf
 from nova.network import linux_net
 from nova.network import model as network_model
 
+vcloudapi_opts = [
+
+    cfg.StrOpt('vcloud_bridge_prefix',
+               default='qvb',
+               help='the vm arp port on br-int bridge prefix'),
+
+]
+
+CONF = cfg.CONF
+CONF.register_opts(vcloudapi_opts, 'vcloud')
 
 LOG = logging.getLogger(__name__)
 
@@ -236,7 +245,7 @@ def get_gveth_pair_names(iface_id):
 
 
 def get_veth_pair_names(iface_id):
-    return (((vcloud_conf.vcloud.vcloud_bridge_prefix + "%s")
+    return (((CONF.vcloud.vcloud_bridge_prefix + "%s")
              % iface_id)[:network_model.NIC_NAME_LEN],
             ("qvo%s" % iface_id)[:network_model.NIC_NAME_LEN])
 
