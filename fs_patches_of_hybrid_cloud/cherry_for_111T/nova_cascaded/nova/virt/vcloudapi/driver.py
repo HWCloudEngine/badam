@@ -46,6 +46,8 @@ from nova.openstack.common import fileutils as fileutils
 from nova.virt import driver
 from nova.virt import diagnostics
 from nova.virt import virtapi
+from nova.virt.vcloudapi import vcenter_utils
+from nova.virt.vcloudapi import vcloud_network_utils
 from nova.virt.vcloudapi import util
 from nova.virt.vcloudapi.vcloudair import *
 from nova.virt.vcloudapi.vcloudair import VCloudAPISession as VCASession
@@ -114,53 +116,49 @@ vcloudapi_opts = [
                default='nkapotoxinSwitch',
                help='the dvs of the vcd used'),
 
-    cfg.StrOpt('vcloud_bridge_prefix',
-               default='qvb',
-               help='the vm arp port on br-int bridge prefix'),
-
     cfg.StrOpt('vcloud_vm_naming_rule',
-            default = 'openstack_vm_id',
-            help = 'the rule to name vcloud VMs, valid options: openstack_vm_id, openstack_vm_name, cascaded_openstack_rule'),
+               default='openstack_vm_id',
+               help='the rule to name vcloud VMs, valid options: openstack_vm_id, openstack_vm_name, cascaded_openstack_rule'),
 
     cfg.DictOpt('vcloud_flavor_map',
-        default = {'m1.tiny':'1', 'm1.small':'2', 'm1.medium':'3', 'm1.large':'4', 'm1.xlarge':'5'},
-        help = 'map nova flavor name to vcloud vm specification id'),
-
-
-    
+                default={
+                    'm1.tiny': '1',
+                    'm1.small': '2',
+                    'm1.medium': '3',
+                    'm1.large': '4',
+                    'm1.xlarge': '5'},
+                help='map nova flavor name to vcloud vm specification id'),
 
 ]
 
 status_dict_vapp_to_instance = {
-        VCLOUD_STATUS.FAILED_CREATION : power_state.CRASHED,
-        VCLOUD_STATUS.UNRESOLVED : power_state.BUILDING,
-        VCLOUD_STATUS.RESOLVED : power_state.BUILDING,
-        VCLOUD_STATUS.DEPLOYED : power_state.NOSTATE,
-        VCLOUD_STATUS.SUSPENDED : power_state.SUSPENDED,
-        VCLOUD_STATUS.POWERED_ON : power_state.RUNNING,
-        VCLOUD_STATUS.WAITING_FOR_INPUT : power_state.NOSTATE,
-        VCLOUD_STATUS.UNKNOWN : power_state.NOSTATE,
-        VCLOUD_STATUS.UNRECOGNIZED : power_state.NOSTATE,
-        VCLOUD_STATUS.POWERED_OFF : power_state.SHUTDOWN,
-        VCLOUD_STATUS.INCONSISTENT_STATE : power_state.NOSTATE,
-        VCLOUD_STATUS.MIXED : power_state.NOSTATE,
-        VCLOUD_STATUS.DESCRIPTOR_PENDING : power_state.NOSTATE,
-        VCLOUD_STATUS.COPYING_CONTENTS : power_state.NOSTATE,
-        VCLOUD_STATUS.DISK_CONTENTS_PENDING : power_state.NOSTATE,
-        VCLOUD_STATUS.QUARANTINED : power_state.NOSTATE,
-        VCLOUD_STATUS.QUARANTINE_EXPIRED : power_state.NOSTATE,
-        VCLOUD_STATUS.REJECTED : power_state.NOSTATE,
-        VCLOUD_STATUS.TRANSFER_TIMEOUT : power_state.NOSTATE,
-        VCLOUD_STATUS.VAPP_UNDEPLOYED : power_state.NOSTATE,
-        VCLOUD_STATUS.VAPP_PARTIALLY_DEPLOYED : power_state.NOSTATE,
-    }
+    VCLOUD_STATUS.FAILED_CREATION: power_state.CRASHED,
+    VCLOUD_STATUS.UNRESOLVED: power_state.BUILDING,
+    VCLOUD_STATUS.RESOLVED: power_state.BUILDING,
+    VCLOUD_STATUS.DEPLOYED: power_state.NOSTATE,
+    VCLOUD_STATUS.SUSPENDED: power_state.SUSPENDED,
+    VCLOUD_STATUS.POWERED_ON: power_state.RUNNING,
+    VCLOUD_STATUS.WAITING_FOR_INPUT: power_state.NOSTATE,
+    VCLOUD_STATUS.UNKNOWN: power_state.NOSTATE,
+    VCLOUD_STATUS.UNRECOGNIZED: power_state.NOSTATE,
+    VCLOUD_STATUS.POWERED_OFF: power_state.SHUTDOWN,
+    VCLOUD_STATUS.INCONSISTENT_STATE: power_state.NOSTATE,
+    VCLOUD_STATUS.MIXED: power_state.NOSTATE,
+    VCLOUD_STATUS.DESCRIPTOR_PENDING: power_state.NOSTATE,
+    VCLOUD_STATUS.COPYING_CONTENTS: power_state.NOSTATE,
+    VCLOUD_STATUS.DISK_CONTENTS_PENDING: power_state.NOSTATE,
+    VCLOUD_STATUS.QUARANTINED: power_state.NOSTATE,
+    VCLOUD_STATUS.QUARANTINE_EXPIRED: power_state.NOSTATE,
+    VCLOUD_STATUS.REJECTED: power_state.NOSTATE,
+    VCLOUD_STATUS.TRANSFER_TIMEOUT: power_state.NOSTATE,
+    VCLOUD_STATUS.VAPP_UNDEPLOYED: power_state.NOSTATE,
+    VCLOUD_STATUS.VAPP_PARTIALLY_DEPLOYED: power_state.NOSTATE,
+}
 
 
 CONF = cfg.CONF
 CONF.register_opts(vcloudapi_opts, 'vcloud')
 
-from nova.virt.vcloudapi import vcenter_utils
-from nova.virt.vcloudapi import vcloud_network_utils
 LOG = logging.getLogger(__name__)
 
 
@@ -368,12 +366,11 @@ class VMwareVcloudDriver(driver.ComputeDriver):
         instance.task_state = task_state
         instance.save()
 
-
     def spawn(self, context, instance, image_meta, injected_files,
               admin_password, network_info=None, block_device_info=None):
 
         #import pdb
-        #pdb.set_trace()
+        # pdb.set_trace()
 
         LOG.debug('[vcloud nova driver] spawn: %s' % instance.uuid)
 
@@ -415,47 +412,60 @@ class VMwareVcloudDriver(driver.ComputeDriver):
         # 1.3 (optional)
         is_poweron = True
 
-        # 2~3 get vmdk file. if boot from volume ,check if the vmdk file exist
-        os.chdir(CONF.vcloud.vcloud_conversion_dir)
-        converted_file_name = CONF.vcloud.vcloud_conversion_dir + \
+        # 2~3 get vmdk file. check if the image or volume vmdk file cached first
+        image_cache_dir = CONF.vcloud.vcloud_conversion_dir
+        volume_cache_dir = CONF.vcloud.vcloud_volumes_dir
+
+        this_conversion_dir = '%s/%s' % (CONF.vcloud.vcloud_conversion_dir, vm_uuid)
+        fileutils.ensure_tree(this_conversion_dir)
+        os.chdir(this_conversion_dir)
+
+        converted_file_name = this_conversion_dir + \
             '/converted-file.vmdk'
-        image_vmdk_file_name = '%s/%s.vmdk' % (
-            CONF.vcloud.vcloud_conversion_dir, image_uuid)
-        orig_file_name = CONF.vcloud.vcloud_conversion_dir + \
-            '/' + image_uuid + '.tmp'
+
         block_device_mapping = driver.block_device_info_get_mapping(
             block_device_info)
+
+        image_vmdk_file_name = '%s/%s.vmdk' % (
+            image_cache_dir, image_uuid)
 
         volume_file_name = ''
         if len(block_device_mapping) > 0:
             volume_id = block_device_mapping[0][
                 'connection_info']['data']['volume_id']
             volume_file_name = '%s/%s.vmdk' % (
-                CONF.vcloud.vcloud_volumes_dir, volume_id)
+                volume_cache_dir, volume_id)
 
+        # 2.1 check if the image or volume vmdk file cached
         if os.path.exists(volume_file_name):
+            # if volume cached, move the volume file to conversion dir
             shutil.move(volume_file_name, converted_file_name)
         elif os.path.exists(image_vmdk_file_name):
-            os.rename(image_vmdk_file_name, converted_file_name)
+            # if image cached, copy ghe image file to conversion dir
+            shutil.copy2(image_vmdk_file_name, converted_file_name)
         else:
-            # 2. download qcow2 file from glance to local
+            # if NOT cached, download qcow2 file from glance to local, then convert it to vmdk
             # tmp_dir = '/hctemp'
-            self._update_vm_task_state(instance,task_state=vcloud_task_states.DOWNLOADING)
+            self._update_vm_task_state(
+                instance,
+                task_state=vcloud_task_states.DOWNLOADING)
 
             metadata = IMAGE_API.get(context, image_uuid)
             file_size = int(metadata['size'])
             read_iter = IMAGE_API.download(context, image_uuid)
             glance_file_handle = util.GlanceFileRead(read_iter)
 
-            orig_file_name = CONF.vcloud.vcloud_conversion_dir + \
+            orig_file_name = this_conversion_dir + \
                 '/' + image_uuid + '.tmp'
             orig_file_handle = fileutils.file_open(orig_file_name, "wb")
 
             util.start_transfer(context, glance_file_handle, file_size,
-                                write_file_handle=orig_file_handle,task_state=vcloud_task_states.DOWNLOADING,instance=instance)
+                                write_file_handle=orig_file_handle, task_state=vcloud_task_states.DOWNLOADING, instance=instance)
 
-            # 3. convert to vmdk
-            self._update_vm_task_state(instance,task_state=vcloud_task_states.CONVERTING)
+            # 2.2. convert to vmdk
+            self._update_vm_task_state(
+                instance,
+                task_state=vcloud_task_states.CONVERTING)
 
             if metadata["disk_format"] == 'qcow2':
                 convert_commond = "qemu-img convert -f %s -O %s %s %s" % \
@@ -484,34 +494,47 @@ class VMwareVcloudDriver(driver.ComputeDriver):
             else:
                 os.rename(orig_file_name, converted_file_name)
 
-        # 4. vmdk to ovf
-        self._update_vm_task_state(instance,task_state=vcloud_task_states.PACKING)
-        ovf_name = '%s/%s.ovf' % (CONF.vcloud.vcloud_conversion_dir,
-                                  vm_uuid)
-        vmx_name = '%s/base-%s.vmx' % (
-            CONF.vcloud.vcloud_conversion_dir, vcloud_flavor_id)
-        mk_ovf_cmd = "ovftool -o %s %s" % (vmx_name, ovf_name)
+            shutil.copy2(converted_file_name,image_vmdk_file_name)
+
+        # 3. vmdk to ovf
+        self._update_vm_task_state(
+            instance,
+            task_state=vcloud_task_states.PACKING)
+
+        vmx_file_dir = '%s/%s' % (CONF.vcloud.vcloud_conversion_dir,'vmx')
+        vmx_name = 'base-%s.vmx' % vcloud_flavor_id
+        vmx_cache_full_name = '%s/%s' % (vmx_file_dir, vmx_name)
+        vmx_full_name = '%s/%s' % (this_conversion_dir, vmx_name)
+        shutil.copy2(vmx_cache_full_name, vmx_full_name)
+
+        ovf_name = '%s/%s.ovf' % (this_conversion_dir,vm_uuid)
+
+        mk_ovf_cmd = "ovftool -o %s %s" % (vmx_full_name, ovf_name)
         mk_ovf_result = subprocess.call(mk_ovf_cmd, shell=True)
 
         if mk_ovf_result != 0:
             LOG.error('make ovf faild!')
-            self._update_vm_task_state(instance,task_state=vm_task_state)
+            self._update_vm_task_state(instance, task_state=vm_task_state)
             return
         # add mac address to ovf
         if mac_address != '':
             self._add_mac_address_to_ovf(ovf_name, mac_address)
-        
-        
+
         # 5~6: UPLOAD ovf to vcloud and create a vm
-        #todo:5. upload ovf to vcloud template, using image's uuid as template name
-        #todo:6. create vm from template
-        self._update_vm_task_state(instance,task_state=vcloud_task_states.NETWORK_CREATING)
+        # todo:5. upload ovf to vcloud template, using image's uuid as template name
+        # todo:6. create vm from template
+        self._update_vm_task_state(
+            instance,
+            task_state=vcloud_task_states.NETWORK_CREATING)
         self.create_networks(network_info)
+        net_name = None
         for vif in network_info:
             net_name = vif['id']
         self.plug_vifs(instance, network_info)
 
-        self._update_vm_task_state(instance,task_state=vcloud_task_states.IMPORTING)
+        self._update_vm_task_state(
+            instance,
+            task_state=vcloud_task_states.IMPORTING)
         vapp_name = self._get_vcloud_vapp_name(instance)
         if not net_name:
             if is_poweron:
@@ -526,13 +549,13 @@ class VMwareVcloudDriver(driver.ComputeDriver):
                      vapp_name)
             else:
                 create_vapp_cmd = 'ovftool  %s "vcloud://%s:%s@%s?org=%s&vdc=%s&vapp=%s"' % \
-                                (ovf_name,
-                                 user_name,
-                                 password,
-                                 vcloud_host,
-                                 vorg_name,
-                                 vdc_name,
-                                 vapp_name)
+                    (ovf_name,
+                     user_name,
+                     password,
+                     vcloud_host,
+                     vorg_name,
+                     vdc_name,
+                     vapp_name)
         else:
             if is_poweron:
                 create_vapp_cmd = 'ovftool --powerOn --net:"VM Network=%s"' \
@@ -547,25 +570,27 @@ class VMwareVcloudDriver(driver.ComputeDriver):
                      vapp_name)
             else:
                 create_vapp_cmd = 'ovftool --net:"VM Network=%s" %s "vcloud://%s:%s@%s?org=%s&vdc=%s&vapp=%s"' % \
-                                (net_name,
-                                 ovf_name,
-                                 user_name,
-                                 password,
-                                 vcloud_host,
-                                 vorg_name,
-                                 vdc_name,
-                                 vapp_name)
+                    (net_name,
+                     ovf_name,
+                     user_name,
+                     password,
+                     vcloud_host,
+                     vorg_name,
+                     vdc_name,
+                     vapp_name)
 
-        fileutils.delete_if_exists('%s/%s.mf' % (CONF.vcloud.vcloud_conversion_dir,vm_uuid))
-        create_vapp_cmd_result = subprocess.call(create_vapp_cmd,shell=True)
+        fileutils.delete_if_exists(
+            '%s/%s.mf' % (this_conversion_dir, vm_uuid))
+        create_vapp_cmd_result = subprocess.call(create_vapp_cmd, shell=True)
 
         if create_vapp_cmd_result != 0:
             LOG.error('create vapp faild!')
-            self._update_vm_task_state(instance,task_state=vm_task_state)
+            self._update_vm_task_state(instance, task_state=vm_task_state)
             return
 
-
-        self._update_vm_task_state(instance,task_state=vcloud_task_states.VM_CREATING)
+        self._update_vm_task_state(
+            instance,
+            task_state=vcloud_task_states.VM_CREATING)
         # import pdb
         # pdb.set_trace()
         if is_poweron:
@@ -577,20 +602,20 @@ class VMwareVcloudDriver(driver.ComputeDriver):
         vapp_status = self._get_vcloud_vapp_status(vapp_name)
         LOG.debug('vapp status: %s' % vapp_status)
         retry_times = 60
-        while vapp_status != expected_vapp_status and retry_times>0:
+        while vapp_status != expected_vapp_status and retry_times > 0:
             time.sleep(3)
             vapp_status = self._get_vcloud_vapp_status(vapp_name)
             LOG.debug('vapp status: %s' % vapp_status)
-            retry_times = retry_times-1
+            retry_times = retry_times - 1
 
-
-        # 7. clean
-        self._update_vm_task_state(instance,task_state=vm_task_state)
-        os.chdir(CONF.vcloud.vcloud_conversion_dir)
-        fileutils.delete_if_exists(orig_file_name)
-        fileutils.delete_if_exists(ovf_name)
-        fileutils.delete_if_exists(vm_uuid + '-disk1.vmdk')
-        os.rename(converted_file_name, image_vmdk_file_name)
+        # 7. clean up
+        self._update_vm_task_state(instance, task_state=vm_task_state)
+        shutil.rmtree(this_conversion_dir, ignore_errors=True)
+        # os.chdir(CONF.vcloud.vcloud_conversion_dir)
+        # fileutils.delete_if_exists(orig_file_name)
+        # fileutils.delete_if_exists(ovf_name)
+        # fileutils.delete_if_exists(vm_uuid + '-disk1.vmdk')
+        # os.rename(converted_file_name, image_vmdk_file_name)
 
     def _get_vcloud_vapp_status(self, vapp_name):
         the_vapp = self._get_vcloud_vapp(vapp_name)
@@ -619,7 +644,7 @@ class VMwareVcloudDriver(driver.ComputeDriver):
 
     def _upload_image_to_glance(
             self, context, src_file_name, image_id, instance):
-        
+
         vm_task_state = instance.task_state
         file_size = os.path.getsize(src_file_name)
         read_file_handle = fileutils.file_open(src_file_name, "rb")
@@ -636,8 +661,8 @@ class VMwareVcloudDriver(driver.ComputeDriver):
                           "properties": {"owner_id": instance['project_id']}}
 
         util.start_transfer(context, read_file_handle, file_size,
-                            image_id=metadata['id'], image_meta=image_metadata,task_state=task_states.IMAGE_UPLOADING,instance=instance)
-        self._update_vm_task_state(instance,task_state=vm_task_state)
+                            image_id=metadata['id'], image_meta=image_metadata, task_state=task_states.IMAGE_UPLOADING, instance=instance)
+        self._update_vm_task_state(instance, task_state=vm_task_state)
 
     def snapshot(self, context, instance, image_id, update_task_state):
 
@@ -645,11 +670,13 @@ class VMwareVcloudDriver(driver.ComputeDriver):
         # 1. get vmdk url
         vapp_name = self._get_vcloud_vapp_name(instance)
         the_vapp = self._get_vcloud_vapp(vapp_name)
-        
+
         remote_vmdk_url = self._query_vmdk_url(the_vapp)
 
         # 2. download vmdk
-        temp_dir = CONF.vcloud.vcloud_conversion_dir
+        temp_dir = '%s/%s' % (CONF.vcloud.vcloud_conversion_dir, instance.uuid)
+        fileutils.ensure_tree(temp_dir)
+
         vmdk_name = remote_vmdk_url.split('/')[-1]
         local_file_name = '%s/%s' % (temp_dir, vmdk_name)
 
@@ -682,8 +709,9 @@ class VMwareVcloudDriver(driver.ComputeDriver):
             instance)
 
         # 5. delete temporary files
-        fileutils.delete_if_exists(local_file_name)
-        fileutils.delete_if_exists(converted_file_name)
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        # fileutils.delete_if_exists(local_file_name)
+        # fileutils.delete_if_exists(converted_file_name)
 
 #         if instance['name'] not in self.instances:
 #             raise exception.InstanceNotRunning(instance_id=instance['uuid'])
@@ -766,10 +794,13 @@ class VMwareVcloudDriver(driver.ComputeDriver):
     def resume(self, context, instance, network_info, block_device_info=None):
         pass
 
-    def _do_destroy_vm(self,context, instance, network_info, block_device_info=None,
-                destroy_disks=True, migrate_data=None):
+    def _do_destroy_vm(self, context, instance, network_info, block_device_info=None,
+                       destroy_disks=True, migrate_data=None):
 
-        is_quick_delete = bool(instance.metadata.get('quick_delete_once', False))
+        is_quick_delete = bool(
+            instance.metadata.get(
+                'quick_delete_once',
+                False))
 
         instance.metadata['quick_delete_once'] = False
         instance.save()
@@ -788,15 +819,19 @@ class VMwareVcloudDriver(driver.ComputeDriver):
 
         vm_task_state = instance.task_state
 
-        if not ( is_quick_delete):
+        if not (is_quick_delete):
 
-            # if the vm have volumes, download the first volume to local directory
-            block_device_mapping = driver.block_device_info_get_mapping(block_device_info)
+            # if the vm have volumes, download the first volume to local
+            # directory
+            block_device_mapping = driver.block_device_info_get_mapping(
+                block_device_info)
             if len(block_device_mapping) > 0:
                 # get first block device
                 # remote_vmdk_url = vca.get_vapp_referenced_file_url(the_vapp)
                 try:
-                    self._update_vm_task_state(instance,vcloud_task_states.EXPORTING)
+                    self._update_vm_task_state(
+                        instance,
+                        vcloud_task_states.EXPORTING)
                     remote_vmdk_url = self._query_vmdk_url(the_vapp)
                 except:
                     LOG.error('Getting Remote VMDK Url failed')
@@ -812,20 +847,17 @@ class VMwareVcloudDriver(driver.ComputeDriver):
                         remote_vmdk_url,
                         local_filename)
 
-        self._update_vm_task_state(instance,vm_task_state)
+        self._update_vm_task_state(instance, vm_task_state)
         self._delete_vapp(the_vapp)
-
-
-
 
     def destroy(self, context, instance, network_info, block_device_info=None,
                 destroy_disks=True, migrate_data=None):
         # import pdb
-        #pdb.set_trace()
+        # pdb.set_trace()
         LOG.debug('[vcloud nova driver] destroy: %s' % instance.uuid)
         self._do_destroy_vm(context, instance, network_info, block_device_info,
                             destroy_disks, migrate_data)
-                            
+
         self.cleanup(context, instance, network_info, block_device_info,
                      destroy_disks, migrate_data)
 
@@ -876,9 +908,8 @@ class VMwareVcloudDriver(driver.ComputeDriver):
 #             raise exception.InterfaceDetachFailed(
 #                     instance_uuid=instance['uuid'])
 
-
     def get_info(self, instance):
-        #if instance['name'] not in self.instances:
+        # if instance['name'] not in self.instances:
          #   raise exception.InstanceNotFound(instance_id=instance['name'])
         #i = self.instances[instance['name']]
 
@@ -1129,19 +1160,20 @@ class VMwareVcloudDriver(driver.ComputeDriver):
     def volume_snapshot_create(self, context, instance, volume_id,
                                create_info):
         # TODO(wangfeng)
+        pass
 
-        # 1. get vmdk url
-        remote_vmdk_url = self._query_vmdk_url(instance.uuid)
-
-        # 2. download vmdk
-        temp_dir = CONF.vcloud.vcloud_conversion_dir
-        vmdk_name = remote_vmdk_url.split('/')[-1]
-        local_file_name = '%s/%s.vmdk' % (temp_dir, volume_id)
-
-        self._download_vmdk_from_vcloud(
-            context,
-            remote_vmdk_url,
-            local_file_name)
+        # # 1. get vmdk url
+        # remote_vmdk_url = self._query_vmdk_url(instance.uuid)
+        #
+        # # 2. download vmdk
+        # temp_dir = CONF.vcloud.vcloud_conversion_dir
+        # vmdk_name = remote_vmdk_url.split('/')[-1]
+        # local_file_name = '%s/%s.vmdk' % (temp_dir, volume_id)
+        #
+        # self._download_vmdk_from_vcloud(
+        #     context,
+        #     remote_vmdk_url,
+        #     local_file_name)
 
         # # 3. convert vmdk to qcow2
         # converted_file_name = temp_dir +  '/converted-file.qcow2'
@@ -1185,12 +1217,11 @@ class VMwareVcloudDriver(driver.ComputeDriver):
         :param context: security context
         :param instance: nova.objects.instance.Instance
         """
-        task_state = instance.metadata['task_state']
+        task_state = instance.metadata.get('task_state')
         if not task_state:
-            self._update_vm_task_state(instance,None)         
+            self._update_vm_task_state(instance, None)
         else:
-            self._update_vm_task_state(instance,task_state)
-        
+            self._update_vm_task_state(instance, task_state)
 
 
 class VCloudAPISession(VCASession):
