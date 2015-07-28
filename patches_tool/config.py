@@ -522,13 +522,14 @@ class BackupRecoverFS(object):
             else:
                 raise
 
-def get_all_cascaded_hosts():
+def get_all_hosts():
     cps_business = CPSServiceBusiness()
     openstack_az_hosts = cps_business.get_openstack_hosts()
     aws_az_hosts = cps_business.get_aws_node_hosts()
     vcloud_az_hosts = cps_business.get_vcloud_node_hosts()
+    all_proxy_host = cps_business.get_all_proxy_nodes(proxy_match_region=CONF.DEFAULT.proxy_match_region)
 
-    return openstack_az_hosts + aws_az_hosts + vcloud_az_hosts
+    return openstack_az_hosts + aws_az_hosts + vcloud_az_hosts + all_proxy_host
 
 def get_os_region_name():
     cps_business = CPSServiceBusiness()
@@ -569,8 +570,8 @@ if __name__ == '__main__':
 
     #first to dispatch patch_tool to all cascaded node.
     if mode == 'prepare':
-        all_cascaded_host = get_all_cascaded_hosts()
-        utils.remote_open_root_permit_for_hosts(all_cascaded_host)
+        all_hosts = get_all_hosts()
+        utils.remote_open_root_permit_for_hosts(all_hosts)
         dispatch_patch_tool.dispatch_patches_tool_to_remote_nodes()
 
     #Second to config cascading node to add proxy roles and config proxy nodes connect with cascaded nodes.

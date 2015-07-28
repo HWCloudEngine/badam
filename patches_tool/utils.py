@@ -153,10 +153,18 @@ def remote_open_root_permit_for_host(ip):
     ssh.put_file(local_path_execute_sh, ScriptFilePath.PATH_EXECUTE_SH_COPY_TO)
     ssh.put_file(local_path_su_change_sh, ScriptFilePath.PATH_SU_CHANGE_SH_COPY_TO)
     log.info('ScriptFilePath.PATH_EXECUTE_SH_COPY_TO: %s' % ScriptFilePath.PATH_EXECUTE_SH_COPY_TO)
+    cmd_to_unix_change_sh = 'dos2unix %s' % ScriptFilePath.PATH_SU_CHANGE_SH_COPY_TO
+    cmd_to_unix_execute_sh = 'dos2unix %s' % ScriptFilePath.PATH_EXECUTE_SH_COPY_TO
     cmd = 'sh %s' % ScriptFilePath.PATH_EXECUTE_SH_COPY_TO
     log.info('cmd %s' % cmd)
-    ssh.run(cmd)
-    ssh.close()
+    try:
+        ssh.run(cmd_to_unix_change_sh)
+        ssh.run(cmd_to_unix_execute_sh)
+        ssh.run(cmd)
+    except Exception, e:
+        log.error('Exception: %s' % traceback.format_exc())
+    finally:
+        ssh.close()
 
 
 def remote_open_root_permit_for_hosts(ip_list):
