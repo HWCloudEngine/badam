@@ -13,9 +13,10 @@ e.g. copy to /root/ directory.
 
 Step 3. Run config.py in cascading node as following:
 # cd /root/patches_tool/
-# python config.py prepare
-After finish prepare, then start to do cascading config by following commands:
 # python config.py cascading 
+
+After finish prepare, then start to do cascading config by following commands:
+# python config.py prepare
 
 Step 4. Verify service status and basic function of FS5.1
 To check service status by execute following commands:
