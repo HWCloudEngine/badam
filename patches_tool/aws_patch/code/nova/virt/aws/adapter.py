@@ -68,7 +68,7 @@ class AwsRegion:
 DRIVER_INFO={
              AwsRegion.US_EAST_1:{'connectionCls': S3Connection,'name':'Amazon S3 (standard)','ex_location_name':''},
              AwsRegion.US_WEST_1:{'connectionCls': S3USWestConnection,'name':'Amazon S3 (us-west-1)','ex_location_name':'us-west-1'},
-             AwsRegion.US_WEST_2:{'connectionCls': S3USWestOregonConnection,'name':'Amazon S3 (us-west-2)','ex_location_name':'us-west-2'},
+             AwsRegion.US_WEST_1:{'connectionCls': S3USWestOregonConnection,'name':'Amazon S3 (us-west-2)','ex_location_name':'us-west-2'},
              AwsRegion.EU_WEST_1:{'connectionCls': S3EUWestConnection,'name':'Amazon S3 (eu-west-1)','ex_location_name':'EU'},
              AwsRegion.AP_NORTHEAST_1:{'connectionCls': S3APNEConnection,'name':'Amazon S3 (ap-northeast-1)','ex_location_name':'ap-northeast-1'},
              AwsRegion.AP_SOUTHEAST_1:{'connectionCls': S3APSEConnection,'name':'Amazon S3 (ap-southeast-1)','ex_location_name':'ap-southeast-1'}
