@@ -58,10 +58,10 @@ class TestNova(unittest.TestCase):
     def test_create_vm_in_az01(self):
         ACTIVE_STATUS = 'ACTIVE'
         SERVER_NAME = 'test-ci-vm-01'
-        nics = [{'net-id': '43ec660c-0687-4be4-a781-700ce81931d2'}]
+        nics = [{'net-id': 'a2c668af-636c-437b-b5bd-b89368d83c2d'}]
         services = RefServices()
         created_server = services.nova_create(name=SERVER_NAME,
-                         image='8d7fa38b-6991-4761-a990-adf02995defc',
+                         image='cfde0324-0ca6-4883-b160-bf06383ad466',
                          flavor=1,
                          availability_zone='az01.shenzhen--fusionsphere',
                          nics=nics)
