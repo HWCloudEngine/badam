@@ -129,9 +129,6 @@ vcloudapi_opts = [
                     'm1.xlarge': '5'},
                 help='map nova flavor name to vcloud vm specification id'),
 
-
-    
-
 ]
 
 status_dict_vapp_to_instance = {
@@ -369,12 +366,11 @@ class VMwareVcloudDriver(driver.ComputeDriver):
         instance.task_state = task_state
         instance.save()
 
-
     def spawn(self, context, instance, image_meta, injected_files,
               admin_password, network_info=None, block_device_info=None):
 
         #import pdb
-        #pdb.set_trace()
+        # pdb.set_trace()
 
         LOG.debug('[vcloud nova driver] spawn: %s' % instance.uuid)
 
@@ -648,7 +644,7 @@ class VMwareVcloudDriver(driver.ComputeDriver):
 
     def _upload_image_to_glance(
             self, context, src_file_name, image_id, instance):
-        
+
         vm_task_state = instance.task_state
         file_size = os.path.getsize(src_file_name)
         read_file_handle = fileutils.file_open(src_file_name, "rb")
@@ -665,8 +661,8 @@ class VMwareVcloudDriver(driver.ComputeDriver):
                           "properties": {"owner_id": instance['project_id']}}
 
         util.start_transfer(context, read_file_handle, file_size,
-                            image_id=metadata['id'], image_meta=image_metadata,task_state=task_states.IMAGE_UPLOADING,instance=instance)
-        self._update_vm_task_state(instance,task_state=vm_task_state)
+                            image_id=metadata['id'], image_meta=image_metadata, task_state=task_states.IMAGE_UPLOADING, instance=instance)
+        self._update_vm_task_state(instance, task_state=vm_task_state)
 
     def snapshot(self, context, instance, image_id, update_task_state):
 
@@ -680,6 +676,7 @@ class VMwareVcloudDriver(driver.ComputeDriver):
         # 2. download vmdk
         temp_dir = '%s/%s' % (CONF.vcloud.vcloud_conversion_dir, instance.uuid)
         fileutils.ensure_tree(temp_dir)
+
         vmdk_name = remote_vmdk_url.split('/')[-1]
         local_file_name = '%s/%s' % (temp_dir, vmdk_name)
 
@@ -850,20 +847,17 @@ class VMwareVcloudDriver(driver.ComputeDriver):
                         remote_vmdk_url,
                         local_filename)
 
-        self._update_vm_task_state(instance,vm_task_state)
+        self._update_vm_task_state(instance, vm_task_state)
         self._delete_vapp(the_vapp)
-
-
-
 
     def destroy(self, context, instance, network_info, block_device_info=None,
                 destroy_disks=True, migrate_data=None):
         # import pdb
-        #pdb.set_trace()
+        # pdb.set_trace()
         LOG.debug('[vcloud nova driver] destroy: %s' % instance.uuid)
         self._do_destroy_vm(context, instance, network_info, block_device_info,
                             destroy_disks, migrate_data)
-                            
+
         self.cleanup(context, instance, network_info, block_device_info,
                      destroy_disks, migrate_data)
 
@@ -914,9 +908,8 @@ class VMwareVcloudDriver(driver.ComputeDriver):
 #             raise exception.InterfaceDetachFailed(
 #                     instance_uuid=instance['uuid'])
 
-
     def get_info(self, instance):
-        #if instance['name'] not in self.instances:
+        # if instance['name'] not in self.instances:
          #   raise exception.InstanceNotFound(instance_id=instance['name'])
         #i = self.instances[instance['name']]
 
@@ -1226,10 +1219,9 @@ class VMwareVcloudDriver(driver.ComputeDriver):
         """
         task_state = instance.metadata.get('task_state')
         if not task_state:
-            self._update_vm_task_state(instance,None)         
+            self._update_vm_task_state(instance, None)
         else:
-            self._update_vm_task_state(instance,task_state)
-        
+            self._update_vm_task_state(instance, task_state)
 
 
 class VCloudAPISession(VCASession):
