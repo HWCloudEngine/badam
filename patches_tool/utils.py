@@ -145,24 +145,42 @@ def get_openstack_installed_path():
         log.info('openstack_installed_path: %s' % openstack_installed_path)
         return openstack_installed_path
 
+def remote_execute_cmd(host_ip, cmd):
+    ssh = sshutils.SSH(host=host_ip, user=SysUserInfo.FSP, password=SysUserInfo.FSP_PWD)
+    error_message = 'Exception when execute cmd:<%s> host:<%s>, Exception: %s' % (cmd, host_ip, traceback.format_exc())   
+    try:
+        ssh.run(cmd)
+    except Exception, e:
+        log.error(error_message)
+    finally:
+        ssh.close()
+
+def remote_execute_cmd_by_root(host_ip, cmd):
+    ssh = sshutils.SSH(host=host_ip, user=SysUserInfo.ROOT, password=SysUserInfo.ROOT_PWD)
+    error_message = 'Exception when execute cmd:<%s> host:<%s>, Exception: %s' % (cmd, host_ip, traceback.format_exc())
+    try:
+        ssh.run(cmd)
+    except Exception, e:
+        log.error(error_message)
+    finally:
+        ssh.close()
 
 def remote_open_root_permit_for_host(ip):
     ssh = sshutils.SSH(host=ip, user=SysUserInfo.FSP, password=SysUserInfo.FSP_PWD)
     local_path_execute_sh = os.path.join(get_patches_tool_path(), ScriptFilePath.PATH_EXECUTE_SH)
     local_path_su_change_sh = os.path.join(get_patches_tool_path(), ScriptFilePath.PATH_SU_CHANGE_SH)
-    ssh.put_file(local_path_execute_sh, ScriptFilePath.PATH_EXECUTE_SH_COPY_TO)
-    ssh.put_file(local_path_su_change_sh, ScriptFilePath.PATH_SU_CHANGE_SH_COPY_TO)
-    log.info('ScriptFilePath.PATH_EXECUTE_SH_COPY_TO: %s' % ScriptFilePath.PATH_EXECUTE_SH_COPY_TO)
     cmd_to_unix_change_sh = 'dos2unix %s' % ScriptFilePath.PATH_SU_CHANGE_SH_COPY_TO
     cmd_to_unix_execute_sh = 'dos2unix %s' % ScriptFilePath.PATH_EXECUTE_SH_COPY_TO
     cmd = 'sh %s' % ScriptFilePath.PATH_EXECUTE_SH_COPY_TO
-    log.info('cmd %s' % cmd)
+    log.info('open root permit for host:<%s>' % ip)
     try:
+        ssh.put_file(local_path_execute_sh, ScriptFilePath.PATH_EXECUTE_SH_COPY_TO)
+        ssh.put_file(local_path_su_change_sh, ScriptFilePath.PATH_SU_CHANGE_SH_COPY_TO)
         ssh.run(cmd_to_unix_change_sh)
         ssh.run(cmd_to_unix_execute_sh)
         ssh.run(cmd)
     except Exception, e:
-        log.error('Exception: %s' % traceback.format_exc())
+        log.error('Exception when remote open root permit for host:<%s>, Exception: %s' % (ip, traceback.format_exc()))
     finally:
         ssh.close()
 

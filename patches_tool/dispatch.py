@@ -26,17 +26,20 @@ class DispatchPatchTool(object):
     def dispatch_patch_tool_to_host(self, host):
         path_of_patch_tool = utils.get_patches_tool_path()
         files_need_to_dispatch = utils.get_files(path_of_patch_tool, self.filter_for_dispatch)
-
         ssh = sshutils.SSH(host=host, user=SysUserInfo.FSP, password=SysUserInfo.FSP_PWD)
-        for absolute_file, relative_path_of_file in files_need_to_dispatch:
-            log.info('start to copy file <<%s>> to host <<%s>>' % (relative_path_of_file, host))
-            file_copy_to = os.path.join(SysPath.HOME_FSP, SysPath.PATCHES_TOOL, relative_path_of_file)
-            file_dir_copy_to = os.path.dirname(file_copy_to)
-            ssh.run('mkdir -p %s' % file_dir_copy_to)
-            ssh.put_file(absolute_file, file_copy_to)
-            log.info('End to copy file <<%s>> to host <<%s>>' % (relative_path_of_file, host))
+        try:
+            for absolute_file, relative_path_of_file in files_need_to_dispatch:
+                log.info('start to copy file <<%s>> to host <<%s>>' % (relative_path_of_file, host))
+                file_copy_to = os.path.join(SysPath.HOME_FSP, SysPath.PATCHES_TOOL, relative_path_of_file)
+                file_dir_copy_to = os.path.dirname(file_copy_to)
+                ssh.run('mkdir -p %s' % file_dir_copy_to)
+                ssh.put_file(absolute_file, file_copy_to)
+                log.info('End to copy file <<%s>> to host <<%s>>' % (relative_path_of_file, host))
 
-        ssh.close()
+        except Exception, e:
+            log.error('Exception occur when dispatch patches tool to host: <%s>, Exception: %s' % (host, traceback.format_exc()))
+        finally:
+            ssh.close()
 
     def dispatch_patches_tool_to_host_with_tar(self, host, local_full_path_of_tar_file):
         log.info('Start to dispatch tar of patches_tool to host %s' % host)
@@ -47,17 +50,23 @@ class DispatchPatchTool(object):
             # remove dir: /home/fsp/patches_tool/
             ssh.run('rm -rf %s' % dir_of_patches_tool)
         except Exception, e:
-            log.error('Failed to execute <%s> in HOST <%s>' % ('rm -rf %s' % dir_of_patches_tool, host))
-            log.error('Exception: %s' % traceback.format_exc())
+            log.info('Failed to execute <%s> in HOST <%s>' % ('rm -rf %s' % dir_of_patches_tool, host))
+            log.info('Exception: %s' % traceback.format_exc())
+
         try:
             # remove /home/fsp/patches_tool.tar.gz
             ssh.run('rm %s' % full_path_of_file_copy_to)
         except Exception, e:
+            log.info('%s is not exist, no need to remove' % full_path_of_file_copy_to)
+
+        try:
+            ssh.put_file(local_full_path_of_tar_file, full_path_of_file_copy_to)
+            ssh.run('tar -xzvf %s -C %s' % (full_path_of_file_copy_to, SysPath.HOME_FSP))
+        except Exception, e:
             log.error('Failed to execute <%s> in HOST <%s>' % ('rm %s' % full_path_of_file_copy_to, host))
             log.error('Exception: %s' % traceback.format_exc())
-        ssh.put_file(local_full_path_of_tar_file, full_path_of_file_copy_to)
-        ssh.run('tar -xzvf %s -C %s' % (full_path_of_file_copy_to, SysPath.HOME_FSP))
-        ssh.close()
+        finally:
+            ssh.close()
         log.info('Success to dispatch tar of patches_tool to host %s' % host)
 
     def remove_tar_patches_tool(self, full_patch_of_patches_tool):
@@ -143,24 +152,12 @@ class DispatchPatchTool(object):
             self.remote_patch_vcloud_node(host)
 
     def remote_patch_aws_node(self, host):
-        try:
-            ssh = sshutils.SSH(host=host, user=SysUserInfo.ROOT, password=SysUserInfo.ROOT_PWD)
-            ssh.run('python %s' % ScriptFilePath.PATH_REMOTE_AWS_PATCH_FILE)
-            ssh.close()
-        except Exception, e:
-            log.error('Exception when remote_patch_aws_node for host %s' % host)
-            print('Exception when remote_patch_aws_node for host %s' % host)
-            log.error('Exception: %s' % traceback.format_exc())
+        cmd = 'python %s' % ScriptFilePath.PATH_REMOTE_AWS_PATCH_FILE
+        utils.remote_execute_cmd(host, cmd)
 
     def remote_patch_vcloud_node(self, host):
-        try:
-            ssh = sshutils.SSH(host=host, user=SysUserInfo.ROOT, password=SysUserInfo.ROOT_PWD)
-            ssh.run('python %s' % ScriptFilePath.PATH_REMOTE_VCLOUD_PATCH_FILE)
-            ssh.close()
-        except Exception, e:
-            log.error('Exception when remote_patch_vcloud_node for host %s' % host)
-            print('Exception when remote_patch_vcloud_node for host %s' % host)
-            log.error('Exception: %s' % traceback.format_exc())
+        cmd = 'python %s' % ScriptFilePath.PATH_REMOTE_VCLOUD_PATCH_FILE
+        utils.remote_execute_cmd(host, cmd)
 
     def remote_config_cascaded_for_all_type_node(self):
         print('Start to config cascading nodes...')
@@ -180,13 +177,8 @@ class DispatchPatchTool(object):
         print('Finish to config cascading nodes...')
 
     def remote_config_openstack_cascaded_node(self, host):
-        try:
-            ssh = sshutils.SSH(host=host, user=SysUserInfo.ROOT, password=SysUserInfo.ROOT_PWD)
-            ssh.run('python %s cascaded' % ScriptFilePath.PATCH_REMOTE_HYBRID_CONFIG_PY)
-            ssh.close()
-        except Exception, e:
-            log.error('Exception when remote_config_openstack_cascaded_node in HOST:<%s>' % host)
-            log.error('Exception: %s' % traceback.format_exc())
+        cmd = 'python %s cascaded' % ScriptFilePath.PATCH_REMOTE_HYBRID_CONFIG_PY
+        utils.remote_execute_cmd(host, cmd)
 
     def dispatch_cmd_to_all_proxy_nodes(self, cmd):
         self.dispatch_cmd_to_hosts(cmd, self.proxy_hosts)
@@ -199,13 +191,6 @@ class DispatchPatchTool(object):
     def dispatch_cmd_to_hosts(self, cmd, hosts):
         log.info('Start to execute cmd<%s> in hosts<%s>' %(cmd, str(hosts)))
         for host in hosts:
-            try:
-                ssh = sshutils.SSH(host=host, user=SysUserInfo.ROOT, password=SysUserInfo.ROOT_PWD)
-                ssh.run(cmd)
-                ssh.close()
-            except Exception, e:
-                log.error('Exception occur when execute cmd<%s> in host<%s>' % (cmd, hosts))
-                log.error('Exception: %s' % traceback.format_exc())
-                continue
+            utils.remote_execute_cmd(host, cmd)
 
         log.info('Finish to execute cmd<%s> in hosts<%s>' %(cmd, str(hosts)))

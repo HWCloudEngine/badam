@@ -8,6 +8,7 @@ from keystoneclient.v2_0.endpoints import Endpoint
 from novaclient import client as nova_client
 from nova.proxy import clients
 from nova.proxy import compute_context
+from constants import SysUserInfo
 
 # from install_tool import cps_server, fsutils, fs_system_util
 # TODO:
@@ -15,8 +16,12 @@ sys.path.append('/usr/bin/install_tool')
 import cps_server
 import fsutils
 import fs_system_util
+import sshutils
+import utils
 
 import log
+
+from constants import ScriptFilePath
 
 class RefServices(object):
 
@@ -427,7 +432,7 @@ class CPSServiceBusiness(object):
             print('Template instance info of Service<%s> Template<%s> is None.' % (service, template))
             log.error('Template instance info of Service<%s> Template<%s> is None.' % (service, template))
             log.error('template_instance_info: %s' % template_instance_info)
-            return False
+            return None
         status = template_instance_info.get('instances')[0].get('hastatus')
         if status == aim_status:
             log.info('Status of service<%s>, template<%s> is: %s' % (service, template, status))
@@ -453,10 +458,33 @@ class CPSServiceBusiness(object):
 
     def check_cinder_template(self, proxy_number):
         cinder_template = self.get_cinder_template(proxy_number)
-        self.check_status_for_template(self.CINDER, cinder_template, self.STATUS_ACTIVE)
+        check_result = self.check_status_for_template(self.CINDER, cinder_template, self.STATUS_ACTIVE)
+
+        return check_result
 
     def check_all_service_template_status(self, proxy_number):
-        self.check_cinder_template(proxy_number)
+        log.info('check cinder proxy status, cinder proxy : <%s>' % proxy_number)
+        check_cinder_result = self.check_cinder_template(proxy_number)
+        log.info('check cinder proxy status, cinder proxy : <%s>, status : <%s>' % (proxy_number, check_cinder_result))
+
+        if check_cinder_result is not None and not check_cinder_result:
+            proxy_match_host = self.get_proxy_match_host()
+            proxy_host = proxy_match_host[proxy_number]
+            command =\
+                'echo \'/usr/bin/python /usr/bin/cinder-%s --config-file /etc/cinder/cinder-%s.conf  > /dev/null 2>&1 &\' > %s' \
+                % (proxy_number, proxy_number, ScriptFilePath.PATH_RESTART_CINDER_PROXY_SH)
+
+
+            log.info('cinder proxy=%s, host=%s, cmd=%s' % (proxy_number, proxy_host, command))
+
+            utils.remote_execute_cmd(proxy_host, command)
+
+            run_restart_cinder_proxy_cmd = '/usr/bin/sh %s' % ScriptFilePath.PATH_RESTART_CINDER_PROXY_SH
+
+            log.info('run_restart_cinder_proxy_cmd=%s' % run_restart_cinder_proxy_cmd)
+
+            utils.remote_execute_cmd_by_root(proxy_host, run_restart_cinder_proxy_cmd)
+
         self.check_neutron_l2_template(proxy_number)
         self.check_neutron_l3_template(proxy_number)
         self.check_nova_template(proxy_number)
@@ -560,6 +588,29 @@ class CPSServiceBusiness(object):
                 log.info('Region of ip <%s> is None, this host of ip address is not a proxy' % proxy_host_ip)
 
         return proxy_node_hosts
+
+    def get_proxy_match_host(self):
+        proxy_match_host = {}
+        host_list = RefCPSService.host_list()
+        for host in host_list['hosts']:
+            roles_list = host['roles']
+            proxy_host_ip = host['manageip']
+            proxy_number = self._get_proxy_number_from_roles(roles_list)
+            if proxy_number is not None:
+                proxy_match_host[proxy_number] = proxy_host_ip
+            else:
+                log.info('Proxy number is none for host: %s' % proxy_host_ip)
+
+        return proxy_match_host
+
+    def _get_proxy_number_from_roles(self, roles_list):
+        for role in roles_list:
+            if 'proxy' in role:
+                return role.split('-')[1]
+            else:
+                continue
+
+        return None
 
     def _get_region_by_roles_list(self, roles_list, proxy_match_region):
         for role in roles_list:

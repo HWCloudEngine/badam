@@ -32,6 +32,7 @@ class ScriptFilePath(object):
     SCRIPT = 'scripts'
     EXECUTE_SH = 'execute.sh'
     SU_CHANGE_SH = 'su_change.sh'
+    RESTART_CINDER_PROXY_SH='restart_cinder_proxy.sh'
     HOME = ''.join([os.path.sep, 'home'])
     FSP = 'fsp'
     PATCHES_TOOL = 'patches_tool'
@@ -44,6 +45,7 @@ class ScriptFilePath(object):
     PATH_SU_CHANGE_SH = os.path.join(SCRIPT, SU_CHANGE_SH)
     PATH_EXECUTE_SH_COPY_TO = os.path.join(HOME, FSP, BIN, EXECUTE_SH)
     PATH_SU_CHANGE_SH_COPY_TO = os.path.join(HOME, FSP, BIN, SU_CHANGE_SH)
+    PATH_RESTART_CINDER_PROXY_SH = os.path.join(HOME, FSP, BIN, RESTART_CINDER_PROXY_SH)
 
     PATH_REMOTE_AWS_PATCH_FILE = os.path.join(HOME, FSP, PATCHES_TOOL, AWS_PATCH, PATCH_FILE)
     PATH_REMOTE_VCLOUD_PATCH_FILE = os.path.join(HOME, FSP, PATCHES_TOOL, VCLOUD_PATCH, PATCH_FILE)
