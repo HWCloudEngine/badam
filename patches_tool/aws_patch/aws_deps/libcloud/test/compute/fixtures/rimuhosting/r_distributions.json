@@ -9,14 +9,14 @@
     [{ "distro_code" : "lenny"
        , "distro_description" : "Debian 5.0 (aka Lenny, RimuHosting recommended distro)"}
      , { "distro_code" : "centos5"
-	 , "distro_description" : "Centos5"}
+     , "distro_description" : "Centos5"}
      , { "distro_code" : "ubuntu904"
-	 , "distro_description" : "Ubuntu 9.04 (Jaunty Jackalope, from 2009-04)"}
+     , "distro_description" : "Ubuntu 9.04 (Jaunty Jackalope, from 2009-04)"}
      , { "distro_code" : "ubuntu804"
-	 , "distro_description" : "Ubuntu 8.04 (Hardy Heron, 5 yr long term support (LTS))"}
+     , "distro_description" : "Ubuntu 8.04 (Hardy Heron, 5 yr long term support (LTS))"}
      , { "distro_code" : "ubuntu810"
-	 , "distro_description" : "Ubuntu 8.10 (Intrepid Ibex, from 2008-10)"}
+     , "distro_description" : "Ubuntu 8.10 (Intrepid Ibex, from 2008-10)"}
      , { "distro_code" : "fedora10"
-	 , "distro_description" : "Fedora 10"}]
+     , "distro_description" : "Fedora 10"}]
   }
 }

@@ -10,9 +10,9 @@
       , "pricing_plan_description" : "MiroVPS Semi-Dedicated Server (Dallas)"
       , "monthly_recurring_fee" : 32.54
       , "monthly_recurring_amt" : {
-	  "amt" : 35.0
-	  , "currency" : "CUR_AUD"
-	  , "amt_usd" : 32.54}
+      "amt" : 35.0
+      , "currency" : "CUR_AUD"
+      , "amt_usd" : 32.54}
       , "minimum_memory_mb" : 950
       , "minimum_disk_gb" : 20
       , "minimum_data_transfer_allowance_gb" : 75

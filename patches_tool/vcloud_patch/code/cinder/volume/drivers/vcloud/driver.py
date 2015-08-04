@@ -339,7 +339,7 @@ class VMwareVcloudVolumeDriver(driver.VolumeDriver):
 
     def _get_instance_uuid(self, volume):
         if hasattr(volume, 'instance_uuid'):
-		    instance_uuid = volume.instance_uuid
+            instance_uuid = volume.instance_uuid
         else:
             instance_uuid = volume.volume_attachment[0].instance_uuid
         return instance_uuid
@@ -409,7 +409,7 @@ class VMwareVcloudVolumeDriver(driver.VolumeDriver):
 
         if instance_uuid:
             self._update_vm_task_state(context,instance_uuid, vcloud_task_states.UPLOADING)
-			
+
         util.upload_volume(context,image_service,image_meta,local_file_name,'vmdk')
 
         if instance_uuid:

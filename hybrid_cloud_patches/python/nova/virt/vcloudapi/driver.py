@@ -303,7 +303,7 @@ class VMwareVcloudDriver(driver.ComputeDriver):
 
     def spawn(self, context, instance, image_meta, injected_files,
               admin_password, network_info=None, block_device_info=None):
-			  
+
         mac_address = ''
         if len(network_info) > 0:
             mac_address = network_info[0]['address']

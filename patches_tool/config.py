@@ -536,7 +536,7 @@ def get_all_cascaded_hosts():
     aws_az_hosts = cps_business.get_aws_node_hosts()
     vcloud_az_hosts = cps_business.get_vcloud_node_hosts()
     return openstack_az_hosts + aws_az_hosts + vcloud_az_hosts
-	
+
 def get_all_proxy_hosts():
     cps_business = CPSServiceBusiness()
     all_proxy_hosts = cps_business.get_all_proxy_nodes(proxy_match_region=CONF.DEFAULT.proxy_match_region)
@@ -582,7 +582,7 @@ if __name__ == '__main__':
     #first to dispatch patch_tool to all cascaded node.
     if mode == 'prepare':
         all_cascaded_hosts = get_all_cascaded_hosts()
-	all_proxy_hosts = get_all_proxy_hosts()
+        all_proxy_hosts = get_all_proxy_hosts()
         utils.remote_open_root_permit_for_hosts(all_cascaded_hosts + all_proxy_hosts)
         dispatch_patch_tool.dispatch_patches_tool_to_remote_nodes()
 
