@@ -584,6 +584,7 @@ if __name__ == '__main__':
         all_cascaded_hosts = get_all_cascaded_hosts()
         all_proxy_hosts = get_all_proxy_hosts()
         utils.remote_open_root_permit_for_hosts(all_cascaded_hosts + all_proxy_hosts)
+        utils.add_auto_route_for_fs(all_cascaded_hosts + all_proxy_hosts)
         dispatch_patch_tool.dispatch_patches_tool_to_remote_nodes()
 
     #Second to config cascading node to add proxy roles and config proxy nodes connect with cascaded nodes.

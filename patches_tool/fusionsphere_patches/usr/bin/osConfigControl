@@ -1,0 +1,165 @@
+#!/usr/bin/python
+#encoding:utf-8
+
+import os
+import time
+import traceback
+import argparse
+import fcntl
+import log
+
+from CommonUtils import CommonUtils
+from osConfigStorage import CPSosDiskConfig
+from OSConfigConstant import OsConfigConstatnt
+from install_ini import *
+from osConfigNetwork import OSConfigNetwork
+from block_storage import exception
+
+
+#解析输入参数
+parser = argparse.ArgumentParser()
+parser.add_argument('-v', '--version', action='version', version='%(prog)s 1.0')
+
+#-i 安装标志参数 init初始安装
+parser.add_argument("-i", "-I", help = "the parameter of init flags", action = 'store', dest = 'initflag')
+#-e PXE网口
+parser.add_argument("-e", "-E", help = "the parameter of pxeethnum", action = 'store', dest = 'pxeethnum')
+#-s 服务状态控制
+parser.add_argument("-s", "-S", help = "the parameter of service control", action = 'store', dest = 'control')
+#-c 配置文件的信息
+parser.add_argument("-c", "-C", help = "the parameter of cfgfileinfo", action = 'store', dest = 'cfgfileinfo')
+#-hc hostcfg文件的文件路径
+parser.add_argument("-hc", "-HC", help = "the parameter of hostcfgfileinfo", action = 'store', dest = 'hostcfgfileinfo')
+#-COMP
+parser.add_argument("-comp", "-COMP", help = "compoent name", action = 'store', dest = 'compoent_name')
+options = parser.parse_args()
+throw_flag = False
+
+def get_humep_gw_addr():
+    #pre-install branch: add the default gateway
+    log.info("enter into get_humep_gw_addr.")
+    default_gateway = ""
+    dhcpcd_base = '/var/lib/dhcpcd/'
+    if os.path.exists("/etc/OpenStackPreinstall/esn.xml"):
+        dhcpd_file = os.listdir(dhcpcd_base)
+        for d_file in dhcpd_file:
+            legal_flag = False
+            with open(os.path.join(dhcpcd_base, d_file), 'r+') as f:
+                lines = f.readlines()
+                for s_line in lines:
+                    if "DHCPSIADDR" in s_line:
+                        dhcp_srv_ip = eval(s_line.split('=')[1])
+                        if dhcp_srv_ip.startswith("192.168.9"):
+                            legal_flag = True
+                if legal_flag:
+                    for s_line in lines:
+                        if "GATEWAYS" in s_line:
+                            default_gateway = eval(s_line.split('=')[1])
+
+        #config route
+        if default_gateway:
+            #if default route info exist, return
+            cmd = "route |grep default |grep -w %s" % default_gateway
+            ret, output = CommonUtils.runCMD(cmd)
+            if ret == 0 and output:
+                log.info("default route has been exist.")
+                return
+
+            log.info("begin to add default route %s for humep." % default_gateway)
+            retry=3
+            while retry>0:
+                ret, output = CommonUtils.runCMD('sudo route add default gw %s' % default_gateway)
+                if ret == 0:
+                    log.info("add default route success.")
+                    break
+
+                log.info("add default route info failed. retry:%s" % retry)
+                retry -= 1
+                time.sleep(1)
+
+
+def main():
+    log.info('enter osConfigControl main')
+    retNetwork = OsConfigConstatnt.CFG_SUCCESS
+    retStorage = OsConfigConstatnt.CFG_SUCCESS
+    retKernel = OsConfigConstatnt.CFG_SUCCESS
+
+    #解析HC配置文件信息
+    hostCfgFileInfo = eval(options.hostcfgfileinfo)
+    initflag = options.initflag
+    #处理网络平面设置配置
+    if hostCfgFileInfo.has_key(OsConfigConstatnt.NETWORKCFG_KEY) and initflag != "None":
+        cfgNetwork = OSConfigNetwork(options)
+        retNetwork |= cfgNetwork.configNetwork()
+        if retNetwork == OsConfigConstatnt.CFG_SUCCESS:
+            CommonUtils.runCommand("sudo -u cps -s python %s" % OsConfigConstatnt.DISCOVERY_TIMER_PY)
+        get_humep_gw_addr()
+
+    #处理磁盘分区配置
+    if hostCfgFileInfo.has_key(OsConfigConstatnt.STORAGECFG_KEY):
+        storageCfgFile = hostCfgFileInfo[OsConfigConstatnt.STORAGECFG_KEY]
+        #配置文件若不存在，说明本次不需要进行扩展，正常退出
+        if not os.path.isfile(storageCfgFile):
+            log.error("storage configuration file not existed ! do not need to config with storage! storageCfgFile = %s" % storageCfgFile)
+            return (retNetwork | retStorage | retKernel)
+
+        log.info("osDiskConfig.storageConfigOpr start............ ")
+        osDiskConfig = CPSosDiskConfig()
+        try:
+            ret = osDiskConfig.storageConfigOpr(storageCfgFile)
+            if not ret:
+                log.error("storageConfigOpr failed, ret:%s" % ret)
+                retStorage |= OsConfigConstatnt.CFG_STORAGE_FAIL
+                return (retNetwork | retStorage | retKernel)
+        except exception.DriverInitException as e:
+            global throw_flag
+            throw_flag = True
+            ret = True
+
+        log.info("osDiskConfig.storageConfigOpr end............ ")
+
+    if hostCfgFileInfo.has_key("kernel"):
+        from osConfigKernel import OSConfigKernelAdapt
+        kernel_cfg_file = hostCfgFileInfo["kernel"]
+        if not os.path.isfile(kernel_cfg_file):
+            log.error("file: %s not exist." %kernel_cfg_file)
+            retKernel = OsConfigConstatnt.CFG_KERNEL_FAIL
+            return (retNetwork | retStorage | retKernel)
+        kernel_cfg_obj = OSConfigKernelAdapt.get_instance(options)
+        ret = kernel_cfg_obj.config_kernel(kernel_cfg_file)
+        if 0 != ret:
+            log.error("config kernel failed, ret:%s" % ret)
+
+    return (retNetwork | retStorage | retKernel)
+
+def add_hybrid_cloud_route():
+    cmd = '/usr/bin/sh /home/fsp/bin/add_router.sh > /dev/null 2>&1 &'
+    log.info('start to add route for hybrid_cloud.')
+    try:
+        ret = os.system(cmd)
+        if ret != 0:
+            log.error('Failed to add route for hybrid_cloud. ret: %s' % ret)
+            return OsConfigConstatnt.RET_FAILED
+    except Exception, e:
+        log.error('Failed to add route for hybrid_cloud, Exception: %s' % traceback.format_exc())
+        return OsConfigConstatnt.RET_FAILED
+    log.info('finish to add route for hybrid_cloud.')
+
+if __name__ == '__main__':
+    log.init("osConfig")
+    try:
+        ret = main()
+        time.sleep(30)
+        add_hybrid_cloud_route()
+        if throw_flag:
+            log.error("osConfigControl: found DriverInitException.")
+            exit(9)
+        if ret != OsConfigConstatnt.CFG_SUCCESS:
+            log.error("exit osConfigControl, config failed ret:%s" % ret)
+            exit(ret)
+        else:
+            log.info('exit osConfigControl, config ok.')
+            exit(0)
+    except Exception, e:
+        log.error("exit osConfigControl, config failed exception:%s" % (traceback.format_exc()))
+        exit(3)
