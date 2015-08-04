@@ -1234,7 +1234,21 @@ class SSH(object):
         except paramiko.SSHException:
             self._put_file_shell(localpath, remotepath, mode=mode)
 
-
+class CommonUtils(object):
+    @staticmethod
+    def circle_call(func, times, interval,  **kwargs):
+        for i in range(times):
+            try:
+                func(**kwargs)
+            except Exception, e:
+                log.info('func <%s> kwargs: <%s>need to be executed again' % (str(func.__name__), kwargs))
+                time.sleep(interval)
+                if i == times -1:
+                    log.error('Failed to execute func: <%s>, Exception: %s' % (func.__name__, traceback.format_exc()))
+                    break
+                continue
+            log.info('finish to executed func <%s>' % str(func.__name__))
+            break
 
 if __name__ == '__main__':
     cps = RefServices()

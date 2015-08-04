@@ -5,5 +5,5 @@
     <Owner type="application/vnd.vmware.vcloud.vApp+xml" name="" href="https://vm-vcloud/api/vApp/vapp-0d647cbf-867e-442d-8d2d-d0c2d235fbdf"/>
     <User type="application/vnd.vmware.admin.user+xml" name="labmanapi" href="https://vm-vcloud/api/admin/user/46f62cc3-65e0-4417-967a-a538ec6caea3"/>
     <Organization type="application/vnd.vmware.vcloud.org+xml" name="MyOrg" href="https://vm-vcloud/api/org/96726c78-4ae3-402f-b08b-7a78c6903d2a"/>
-	<Progress>100</Progress>
+    <Progress>100</Progress>
 </Task>

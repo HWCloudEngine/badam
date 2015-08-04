@@ -4,10 +4,10 @@
     <metadata/>
     <addresses>
       <public>
-	<ip addr="67.23.21.33"/>
+    <ip addr="67.23.21.33"/>
       </public>
       <private>
-	<ip addr="10.176.168.218"/>
+    <ip addr="10.176.168.218"/>
       </private>
     </addresses>
   </server>

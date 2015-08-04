@@ -23,18 +23,18 @@
       , "running_state" : "RUNNING"
       , "is_suspended" : false}
     , "host_server_info" : { "is_host64_bit_capable" : true
-			     , "default_kernel_i386" : "2.6.30.5-xenU.i386"
-			     , "default_kernel_x86_64" : "2.6.30.5-xenU.x86_64"
-			     , "cpu_model_name" : "Intel(R) Xeon(R) CPU           E5506  @ 2.13GHz"
-			     , "host_num_cores" : 1
-			     , "host_xen_version" : "3.4.1"
-			     , "hostload" : [1.45
-					     , 0.56
-					     , 0.28]
-			     , "host_uptime_s" : 3378276
-			     , "host_mem_mb_free" : 51825
-			     , "host_mem_mb_total" : 73719
-			     , "running_vpss" : 34}
+                 , "default_kernel_i386" : "2.6.30.5-xenU.i386"
+                 , "default_kernel_x86_64" : "2.6.30.5-xenU.x86_64"
+                 , "cpu_model_name" : "Intel(R) Xeon(R) CPU           E5506  @ 2.13GHz"
+                 , "host_num_cores" : 1
+                 , "host_xen_version" : "3.4.1"
+                 , "hostload" : [1.45
+                         , 0.56
+                         , 0.28]
+                 , "host_uptime_s" : 3378276
+                 , "host_mem_mb_free" : 51825
+                 , "host_mem_mb_total" : 73719
+                 , "running_vpss" : 34}
     , "running_state_messages" : null
   }
 }

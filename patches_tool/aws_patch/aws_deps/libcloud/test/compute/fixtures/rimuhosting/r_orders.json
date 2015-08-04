@@ -12,15 +12,15 @@
        , "billing_oid" : 96122465
        , "is_on_customers_own_physical_server" : false
        , "vps_parameters" : { "memory_mb" : 160
-			      , "disk_space_mb" : 4096
-			      , "disk_space_2_mb" : 0}
+                  , "disk_space_mb" : 4096
+                  , "disk_space_2_mb" : 0}
        , "host_server_oid" : "764"
        , "server_type" : "VPS"
        , "data_transfer_allowance" : { "data_transfer_gb" : 30
-				       , "data_transfer" : "30"}
+                       , "data_transfer" : "30"}
        , "billing_info" : { "monthly_recurring_fee": 19.99 }
        , "allocated_ips" : { "primary_ip" : "1.2.3.4"
-			     , "secondary_ips" : ["1.2.3.5","1.2.3.6"]}
+                 , "secondary_ips" : ["1.2.3.5","1.2.3.6"]}
        , "running_state" : "RUNNING"
      }]
   }
