@@ -10,7 +10,7 @@ import paramiko
 import log
 
 import sshutils
-from constants import ScriptFilePath, SysUserInfo
+from constants import ScriptFilePath, SysUserInfo, PatchFilePath
 
 class CommonCMD(object):
 
@@ -197,6 +197,32 @@ def remote_open_root_permit_for_hosts(ip_list):
     print('Finish to remote open root permit for hosts: %s' % ip_list)
     log.info('Finish to remote open root permit for hosts: %s' % ip_list)
 
+def add_auto_route_for_fs(ip_list):
+    log.info('Start to patch auto route to all azs.')
+    local_path_execute_sh = os.path.join(get_patches_tool_path(), ScriptFilePath.PATH_LOCAL_ADD_ROUTER_SH)
+    local_path_os_config_control = os.path.join(get_patches_tool_path(), PatchFilePath.PATH_LOCAL_OS_CONFIG_CONTROL)
+
+    cmd_to_unix_add_route_sh = 'dos2unix %s' % ScriptFilePath.PATH_REMOTE_ADD_ROUTER_SH
+    cmd_chown_os_config_control_to_cps = 'chown cps:cps %s' % PatchFilePath.PATH_REMOTE_OS_CONFIG_CONTROL
+    cmd_chmod_755_control = 'chmod 755 %s' % PatchFilePath.PATH_REMOTE_OS_CONFIG_CONTROL
+    # TODO
+    cmd_restart_cps = ''
+    for ip in ip_list:
+        try:
+            ssh = sshutils.SSH(host=ip, user=SysUserInfo.ROOT, password=SysUserInfo.ROOT_PWD)
+            try:
+                ssh.put_file(local_path_execute_sh, ScriptFilePath.PATH_REMOTE_ADD_ROUTER_SH)
+                ssh.put_file(local_path_os_config_control, PatchFilePath.PATH_REMOTE_OS_CONFIG_CONTROL)
+                ssh.run(cmd_to_unix_add_route_sh)
+                ssh.run(cmd_chown_os_config_control_to_cps)
+                ssh.run(cmd_chmod_755_control)
+            except Exception, e:
+                log.error('Exception occur when add auto route for fs, exception: %s' % traceback.format_exc())
+            finally:
+                ssh.close()
+        except Exception, e:
+            log.error('Exception occur when add auto route for fs, exception: %s' % traceback.format_exc())
+    log.info('Finish to patch auto route to all azs.')
 
 def make_tarfile(output_filename, source_dir):
     tar = tarfile.open(output_filename, "w:gz")

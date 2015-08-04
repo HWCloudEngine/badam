@@ -28,6 +28,12 @@ class PatchFilePath(object):
     PATCH_FOR_VCLOUD_CASCADED = os.path.sep.join([HYBRID_CLOUD_PATCHES, VCLOUD_CASCADED])
     PATCH_FOR_VCLOUD_PROXY = os.path.sep.join([HYBRID_CLOUD_PATCHES, VCLOUD_PROXY])
 
+    PATH_LOCAL_OS_CONFIG_NETWORK_PY = os.path.join('fusionsphere_patches', 'usr', 'bin', 'osConfigNetwork.py')
+    PATH_REMOTE_OS_CONFIG_NETWORK_PY = os.path.join(''.join([os.path.sep, 'usr']), 'bin', 'osConfigNetwork.py')
+    PATH_LOCAL_OS_CONFIG_CONTROL = os.path.join('fusionsphere_patches', 'usr', 'bin', 'osConfigControl')
+    PATH_REMOTE_OS_CONFIG_CONTROL = os.path.join(''.join([os.path.sep, 'usr']), 'bin', 'osConfigControl')
+
+
 class ScriptFilePath(object):
     SCRIPT = 'scripts'
     EXECUTE_SH = 'execute.sh'
@@ -51,6 +57,10 @@ class ScriptFilePath(object):
     PATH_REMOTE_VCLOUD_PATCH_FILE = os.path.join(HOME, FSP, PATCHES_TOOL, VCLOUD_PATCH, PATCH_FILE)
 
     PATCH_REMOTE_HYBRID_CONFIG_PY = os.path.join(HOME, FSP, PATCHES_TOOL, CONFIG_PY)
+
+    ADD_ROUTER_SH = 'add_router.sh'
+    PATH_LOCAL_ADD_ROUTER_SH = os.path.join(SCRIPT, ADD_ROUTER_SH)
+    PATH_REMOTE_ADD_ROUTER_SH = os.path.join(HOME, FSP, BIN, ADD_ROUTER_SH)
 
 class SysPath(object):
     HOME = ''.join([os.path.sep, 'home'])
