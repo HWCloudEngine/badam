@@ -4,7 +4,7 @@ import unittest2
 import os
 import traceback
 
-from services import RefServices, SSH, LOG_INIT
+from services import RefServices, SSH, LOG_INIT, CommonUtils
 import log
 log.init(LOG_INIT)
 
@@ -110,48 +110,20 @@ class TestNova(unittest2.TestCase):
         :return:
         :return:
         """
-        pass
-        try:
-            cls.ref_services.neutron_router_interface_delete(cls.ext_router_id, cls.ci_subnet01_id)
-        except Exception, e:
-            log.error('remove interface from ext router failed, Exception: %s' % traceback.format_exc())
-        time.sleep(5)
 
-        try:
-            cls.ref_services.neutron_router_gateway_clear(cls.ext_router_id)
-        except Exception, e:
-            log.error('Clear router gateway failed, Exception: %s' % traceback.format_exc())
+        CommonUtils.circle_call(cls.ref_services.neutron_router_interface_delete, 60, 1,
+                                router_id=cls.ext_router_id,
+                                subnet_id=cls.ci_subnet01_id)
+        CommonUtils.circle_call(cls.ref_services.neutron_router_gateway_clear, 60, 1,
+                                router_id=cls.ext_router_id)
+        CommonUtils.circle_call(cls.ref_services.neutron_delete_router, 60, 1, router_id=cls.ext_router_id)
 
-        time.sleep(5)
+        CommonUtils.circle_call(cls.ref_services.neutron_delete_subnet, 60, 1, subnet_id=cls.ci_ext_subnet_id)
+        CommonUtils.circle_call(cls.ref_services.neutron_delete_net, 60, 1, net_id=cls.ci_ext_net_id)
 
-        try:
-            cls.ref_services.neutron_delete_router(cls.ext_router_id)
-        except Exception, e:
-            log.error('Delete ext router failed, Exception: %s' % traceback.format_exc())
+        CommonUtils.circle_call(cls.ref_services.neutron_delete_subnet, 60, 1, subnet_id=cls.ci_subnet01_id)
 
-        time.sleep(5)
-        try:
-            cls.ref_services.neutron_delete_subnet(cls.ci_ext_subnet_id)
-        except Exception, e:
-            log.error('Delete subnet <%s> failed, Exception: %s' % (cls.ci_ext_subnet_id, traceback.format_exc()))
-        time.sleep(5)
-
-        try:
-            cls.ref_services.neutron_delete_net(cls.ci_ext_net_id)
-        except Exception, e:
-            log.error('Delete ext-net failed, Exception: %s' % traceback.format_exc())
-        time.sleep(5)
-
-        try:
-            cls.ref_services.neutron_delete_subnet(cls.ci_subnet01_id)
-        except Exception, e:
-            log.error('Delete subnet %s<> failed, Exception: %s' % (cls.ci_subnet01_id, traceback.format_exc()))
-        time.sleep(5)
-
-        try:
-            cls.ref_services.neutron_delete_net(cls.ci_net01_id)
-        except Exception, e:
-            log.error('Delete net <%s>, Exception: %s' % (cls.ci_net01_id, traceback.format_exc()))
+        CommonUtils.circle_call(cls.ref_services.neutron_delete_net, 60, 1, net_id=cls.ci_net01_id)
 
     def _check_vm_status(self, created_server, aim_status, check_times, check_interval):
         status_last_check = ''
@@ -201,7 +173,7 @@ class TestNova(unittest2.TestCase):
                          availability_zone=self.region_az01,
                          nics=nics)
 
-        status_last_check = self._check_vm_status(created_server, ACTIVE_STATUS, 6, 10)
+        status_last_check = self._check_vm_status(created_server, ACTIVE_STATUS, 36, 5)
 
         # if status_last_check == ACTIVE_STATUS:
         self.ref_services.nova_delete(created_server)
@@ -209,7 +181,7 @@ class TestNova(unittest2.TestCase):
         result_server_exist = self._check_server_exist(created_server, 60, 5)
         self.assertEqual('not exist', result_server_exist)
 
-   # @unittest2.skip("demonstrating skipping")
+    #@unittest2.skip("demonstrating skipping")
     def test_create_vm_in_az11(self):
         ACTIVE_STATUS = 'ACTIVE'
         SERVER_NAME = 'ci-az11-vm-01'
@@ -242,19 +214,19 @@ class TestNova(unittest2.TestCase):
         result_server_exist = self._check_server_exist(created_server, 60, 5)
         self.assertEqual('not exist', result_server_exist)
 
-    # @unittest2.skip("demonstrating skipping")
+    #@unittest2.skip("demonstrating skipping")
     def test_l2_connection_between_az01_az11(self):
         self._test_l2_connection_between_two_az(self.region_az01, self.region_az11, 36, 60, 120)
 
-    # @unittest2.skip("demonstrating skipping")
+    #@unittest2.skip("demonstrating skipping")
     def test_l2_connection_between_az01_az01(self):
         self._test_l2_connection_between_two_az(self.region_az01, self.region_az01, 36, 36, 120)
 
-    # @unittest2.skip("demonstrating skipping")
+    #@unittest2.skip("demonstrating skipping")
     def test_l2_connection_between_az01_az31(self):
         self._test_l2_connection_between_two_az(self.region_az01, self.region_az31, 24, 120, 120)
 
-    # @unittest2.skip("demonstrating skipping")
+    #@unittest2.skip("demonstrating skipping")
     def test_l2_connection_between_az11_az31(self):
         self._test_l2_connection_between_two_az(self.region_az11, self.region_az31, 60, 120, 120)
 
