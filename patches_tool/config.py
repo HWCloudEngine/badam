@@ -169,6 +169,14 @@ class ConfigCascading(object):
         self._update_template_params_for_proxy(service, template, updated_params)
         self._commit_config()
 
+    def config_neutron_server(self):
+        updated_params = {'lbaas_vip_create_port':'True'
+        }
+        service = 'neutron'
+        template = 'neutron-server'
+        self._update_template_params_for_proxy(service, template, updated_params)
+        self._commit_config()
+
     def config_proxy_to_connect_with_cascaded(self):
         for proxy in self.proxies:
             log.info('Start to config cascading connection for proxy: %s' % proxy)
@@ -432,8 +440,24 @@ class ConfigCascading(object):
             print_logger.error('FAILED to update template for service<%s>, template<%s>' % (service, template))
             return False
 
+    def add_role_for_cascading_node(self):
+        start_info = 'Start to add role for cascading node. Include: nova-api, nova-scheduler, neutron-server, loadbalancer'
+        print(start_info)
+        log.info(start_info)
+        host_name_of_cascading_node = socket.gethostname()
+        RefCPSService.role_host_add('nova-api', [host_name_of_cascading_node])
+        RefCPSService.role_host_add('nova-scheduler', [host_name_of_cascading_node])
+        RefCPSService.role_host_add('neutron-server', [host_name_of_cascading_node])
+        RefCPSService.role_host_add('loadbalancer', [host_name_of_cascading_node])
+        RefCPSService.cps_commit()
+        finish_info = 'Finish to add role for cascading node. Include: nova-api, nova-scheduler, neutron-server, loadbalancer'
+        print(finish_info)
+        log.info(finish_info)
+
     def config_cascading_nodes(self):
+        self.add_role_for_cascading_node()
         self.config_nova_scheduler()
+        self.config_neutron_server()
         self.add_role_for_proxies()
         self.config_proxy_to_connect_with_cascaded()
         self.config_big_l2_layer_in_proxy_node()
