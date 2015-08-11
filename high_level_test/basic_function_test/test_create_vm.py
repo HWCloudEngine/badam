@@ -180,7 +180,7 @@ class TestNova(unittest2.TestCase):
         result_server_exist = self._check_server_exist(created_server, 60, 5)
         self.assertEqual('not exist', result_server_exist)
 
-    @unittest2.skip("demonstrating skipping")
+    #@unittest2.skip("demonstrating skipping")
     def test_create_vm_in_az11(self):
         ACTIVE_STATUS = 'ACTIVE'
         SERVER_NAME = 'ci-az11-vm-01'
@@ -197,7 +197,7 @@ class TestNova(unittest2.TestCase):
         result_server_exist = self._check_server_exist(created_server, 60, 5)
         self.assertEqual('not exist', result_server_exist)
 
-    @unittest2.skip("demonstrating skipping")
+    #@unittest2.skip("demonstrating skipping")
     def test_create_vm_in_az31(self):
         ACTIVE_STATUS = 'ACTIVE'
         SERVER_NAME = 'ci-az31-vm-01'
@@ -213,19 +213,19 @@ class TestNova(unittest2.TestCase):
         result_server_exist = self._check_server_exist(created_server, 60, 5)
         self.assertEqual('not exist', result_server_exist)
 
-    @unittest2.skip("demonstrating skipping")
+    #@unittest2.skip("demonstrating skipping")
     def test_l2_connection_between_az01_az11(self):
         self._test_l2_connection_between_two_az(self.region_az01, self.region_az11, 36, 60, 120)
 
-    @unittest2.skip("demonstrating skipping")
+    #@unittest2.skip("demonstrating skipping")
     def test_l2_connection_between_az01_az01(self):
         self._test_l2_connection_between_two_az(self.region_az01, self.region_az01, 36, 36, 120)
 
-    @unittest2.skip("demonstrating skipping")
+    #@unittest2.skip("demonstrating skipping")
     def test_l2_connection_between_az01_az31(self):
         self._test_l2_connection_between_two_az(self.region_az01, self.region_az31, 24, 120, 120)
 
-    @unittest2.skip("demonstrating skipping")
+    #@unittest2.skip("demonstrating skipping")
     def test_l2_connection_between_az11_az31(self):
         self._test_l2_connection_between_two_az(self.region_az11, self.region_az31, 60, 120, 120)
 
