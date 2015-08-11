@@ -146,7 +146,7 @@ def get_openstack_installed_path():
         return openstack_installed_path
 
 def remote_execute_cmd(host_ip, cmd):
-    ssh = sshutils.SSH(host=host_ip, user=SysUserInfo.FSP, password=SysUserInfo.FSP_PWD)
+    ssh = sshutils.SSH(host=host_ip, user=SysUserInfo.ROOT, password=SysUserInfo.ROOT_PWD)
     error_message = 'Exception when execute cmd:<%s> host:<%s>, Exception: %s' % (cmd, host_ip, traceback.format_exc())   
     try:
         ssh.run(cmd)
