@@ -161,7 +161,7 @@ class TestNova(unittest2.TestCase):
         finally:
             ssh.close()
 
-    #@unittest2.skip("demonstrating skipping")
+    @unittest2.skip("demonstrating skipping")
     def test_create_vm_in_az01(self):
         ACTIVE_STATUS = 'ACTIVE'
         SERVER_NAME = 'ci-az01-vm-01'
@@ -221,7 +221,7 @@ class TestNova(unittest2.TestCase):
     def test_l2_connection_between_az01_az01(self):
         self._test_l2_connection_between_two_az(self.region_az01, self.region_az01, 36, 36, 120)
 
-    @unittest2.skip("demonstrating skipping")
+    #@unittest2.skip("demonstrating skipping")
     def test_l2_connection_between_az01_az31(self):
         self._test_l2_connection_between_two_az(self.region_az01, self.region_az31, 24, 120, 120)
 
