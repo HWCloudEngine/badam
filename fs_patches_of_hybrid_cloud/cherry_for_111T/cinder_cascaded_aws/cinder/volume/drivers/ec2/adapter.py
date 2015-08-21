@@ -49,12 +49,18 @@ from libcloud.storage.drivers.s3 import S3EUWestConnection
 from libcloud.storage.drivers.s3 import S3USWestConnection
 from libcloud.storage.drivers.s3 import S3USWestOregonConnection
 from libcloud.storage.drivers.s3 import S3APNEConnection
+from libcloud.common.aws import AWSRequestSigner
+from libcloud.common.aws import AWSRequestSignerAlgorithmV4
 from libcloud.utils.misc import lowercase_keys
+from libcloud.utils.py3 import b, httplib, urlquote
+from hashlib import sha256
+
+DEFAULT_SIGNATURE_VERSION=2
 
 API_VERSION = '2015-03-01'
 #NAMESPACE = 'http://ec2.amazonaws.com/doc/%s/' % (API_VERSION)
 EXPIRATION_SECONDS=60*60
-MAX_RETRY_COUNT=5
+MAX_RETRY_COUNT=8
 CHUNK_SIZE = 1024*4
 
 class AwsRegion:
@@ -68,7 +74,7 @@ class AwsRegion:
 DRIVER_INFO={
              AwsRegion.US_EAST_1:{'connectionCls': S3Connection,'name':'Amazon S3 (standard)','ex_location_name':''},
              AwsRegion.US_WEST_1:{'connectionCls': S3USWestConnection,'name':'Amazon S3 (us-west-1)','ex_location_name':'us-west-1'},
-             AwsRegion.US_WEST_1:{'connectionCls': S3USWestOregonConnection,'name':'Amazon S3 (us-west-2)','ex_location_name':'us-west-2'},
+             AwsRegion.US_WEST_2:{'connectionCls': S3USWestOregonConnection,'name':'Amazon S3 (us-west-2)','ex_location_name':'us-west-2'},
              AwsRegion.EU_WEST_1:{'connectionCls': S3EUWestConnection,'name':'Amazon S3 (eu-west-1)','ex_location_name':'EU'},
              AwsRegion.AP_NORTHEAST_1:{'connectionCls': S3APNEConnection,'name':'Amazon S3 (ap-northeast-1)','ex_location_name':'ap-northeast-1'},
              AwsRegion.AP_SOUTHEAST_1:{'connectionCls': S3APSEConnection,'name':'Amazon S3 (ap-southeast-1)','ex_location_name':'ap-southeast-1'}
@@ -127,6 +133,56 @@ class  EC2ExtResponse(EC2Response):
 
         self.object = self.parse_body()
 
+class AWSExtRequestSignerAlgorithmV2(AWSRequestSigner):
+    def get_request_params(self, params, method='GET', path='/'):
+        params['SignatureVersion'] = '2'
+        params['SignatureMethod'] = 'HmacSHA256'
+        params['AWSAccessKeyId'] = self.access_key
+        params['Version'] = self.version
+        params['Timestamp'] = time.strftime('%Y-%m-%dT%H:%M:%SZ',
+                                            time.gmtime())
+        params['Signature'] = self._get_aws_auth_param(
+            params=params,
+            secret_key=self.access_secret,
+            method =method,
+            path=path)
+        return params
+
+    def _get_aws_auth_param(self, params, secret_key,method='GET', path='/'):
+        """
+        Creates the signature required for AWS, per
+        http://bit.ly/aR7GaQ [docs.amazonwebservices.com]:
+
+        StringToSign = HTTPVerb + "\n" +
+                       ValueOfHostHeaderInLowercase + "\n" +
+                       HTTPRequestURI + "\n" +
+                       CanonicalizedQueryString <from the preceding step>
+        """
+        connection = self.connection
+
+        keys = list(params.keys())
+        keys.sort()
+        pairs = []
+        for key in keys:
+            value = str(params[key])
+            pairs.append(urlquote(key, safe='') + '=' +
+                         urlquote(value, safe='-_~'))
+
+        qs = '&'.join(pairs)
+
+        hostname = connection.host
+        if (connection.secure and connection.port != 443) or \
+           (not connection.secure and connection.port != 80):
+            hostname += ':' + str(connection.port)
+
+        string_to_sign = '\n'.join((method, hostname, path, qs))
+
+        b64_hmac = base64.b64encode(
+            hmac.new(b(secret_key), b(string_to_sign),
+                     digestmod=sha256).digest()
+        )
+
+        return b64_hmac.decode('utf-8')
 
 
 
@@ -139,6 +195,28 @@ class HuaweiConnection(EC2Connection):
     
 class EC2ExtConnection(EC2Connection):
     responseCls = EC2ExtResponse
+    def __init__(self, user_id, key, secure=True, host=None, port=None,
+                 url=None, timeout=None, token=None,
+                 signature_version=DEFAULT_SIGNATURE_VERSION):
+        super(EC2ExtConnection, self).__init__(user_id=user_id, key=key,
+                                                  secure=secure, host=host,
+                                                  port=port, url=url,
+                                                  timeout=timeout, token=token)
+        self.signature_version = str(signature_version)
+
+        if self.signature_version == '2':
+            signer_cls = AWSExtRequestSignerAlgorithmV2
+        elif signature_version == '4':
+            signer_cls = AWSRequestSignerAlgorithmV4
+        else:
+            raise ValueError('Unsupported signature_version: %s' %
+                             (signature_version))
+
+        self.signer = signer_cls(access_key=self.user_id,
+                                 access_secret=self.key,
+                                 version=self.version,
+                                 connection=self)
+   
 
 class RetryDecorator(object):
     """Decorator for retrying a function upon suggested exceptions.
@@ -188,7 +266,9 @@ class RetryDecorator(object):
                         error_message= e.message
                         retry_error_message=['','Tunnel connection failed: 503 Service Unavailable',
                                              'Tunnel connection failed: 502 Bad Gateway',"'NoneType' object has no attribute 'makefile'"]
-                        if error_message not in retry_error_message and  not (error_info in error_message):
+                        if error_message is None:
+                            raise e
+                        if  error_message not in retry_error_message and  not (error_info in error_message):
                             raise e
                         time.sleep(mdelay)
                         mtries -= 1
@@ -252,7 +332,21 @@ class Ec2Adapter(EC2NodeDriver):
                         exceptions=(Exception,ssl.SSLError)) 
     def create_export_instance_task(self, instance_id, des_loc,disk_image_format='VMDK', 
                                     target_environment='VMWare', **kwargs):
-        
+        """
+        Exports a running or stopped instance to an S3 bucket
+        :param instance_id:
+        :type str
+        :param des_loc:S3Bucket name
+        :type str
+        :param disk_image_format: The format for the exported image
+        :type str
+        :Valid Values: VMDK | RAW | VHD
+        :param target_environment: The target virtualization environment
+        :type str
+        :Valid Values: citrix | vmware | microsoft
+        :param kwargs:
+        :return: task object
+        """
         return self.helper.create_export_instance_task(instance_id, des_loc,disk_image_format, 
                                     target_environment, **kwargs)
     
@@ -264,23 +358,57 @@ class Ec2Adapter(EC2NodeDriver):
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))    
     def create_import_image_task(self, src_loc, src_file, **kwargs):
+        """
+        import a image to provider from a file
+
+        :param src_loc: s3 bucket name
+        :type str
+        :param src_file: s3 key
+        :type str
+        :param kwargs: other parameters
+        :return: import task object
+        """
         return self.helper.create_import_image_task(src_loc, src_file, **kwargs)
     
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))     
     def create_import_volume_task(self, src_loc, src_file, src_file_format,src_file_size,
                                    volume_size, **kwargs):
+        """
+        :param src_loc: s3 bucket and directory of source file
+        :type str
+        :param src_file: souce file name in s3
+        :type str
+        :param src_file_format: source file format.
+        :type str
+         valid value: VMDK, RAW, VHD
+        :param volume_size:The size of the volume, in GiB
+        :type long 
+        :param volume_loc: The Availability Zone for the resulting EBS volume
+        :type str 
+        :return: import task object
+        """
         return self.helper.create_import_volume_task( src_loc, src_file, src_file_format,src_file_size,
                       volume_size, **kwargs)
         
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError)) 
     def cancel_task(self, task_obj, **kwargs):
+        """
+        cancels an active conversion task
+        :param task_obj
+        :type TaskBase or the subclass of TaskBase
+        """
         return self.helper.cancel_task( task_obj,**kwargs)
     
     @RetryDecorator(max_retry_count= MAX_RETRY_COUNT,inc_sleep_time=5,max_sleep_time=60,
                         exceptions=(Exception,ssl.SSLError))    
     def get_task_info(self, task_obj, **kwargs):
+        """
+        Describes one of your  task
+        :param task_obj
+        :type TaskBase or the subclass of TaskBase
+        """
         return self.helper.get_task_info(task_obj, **kwargs)
     
     @ErrorDecorator(exceptions=(HttpException)) 
@@ -576,7 +704,7 @@ class Ec2Adapter(EC2NodeDriver):
             ex_network_interfaces = kwargs['ex_network_interfaces']
             params.update(self._get_network_interface_params(ex_network_interfaces))
            
-        object = self.connection.request(self.path, params=params).object
+        object = self.connection.request(self.path, params=params,method='POST').object
         nodes = self._to_nodes(object, 'instancesSet/item')
 
         for node in nodes:
@@ -2424,7 +2552,7 @@ class Ec2Adapter2(EC2NodeDriver):
         response = self.connection.request(self.path, params=params).object
         elem = response.find(
             fixxpath(xpath='conversionTask', namespace=self.name_space))
-        return self._to_import_volume_task_info(elem,manifest_file_name,src_loc,self)
+        return self._to_import_volume_task_info(elem,manifest_file_name,src_loc,src_file,self)
         
     
 
@@ -2621,7 +2749,7 @@ class Ec2Adapter2(EC2NodeDriver):
                          namespace=self.name_space)
         return ExportToS3Info(disk_image_format,container_format,s3_bucket,s3_key)  
     
-    def _to_import_volume_task_info(self,element,manifest_file_name,s3_bucket_name,driver):
+    def _to_import_volume_task_info(self,element,manifest_file_name,s3_bucket_name,src_file,driver):
         """
         Parse the XML element and return a conversion_task_info object.
         :rtype:     :class:`conversion_task_info`
@@ -2655,7 +2783,7 @@ class Ec2Adapter2(EC2NodeDriver):
   
         return ImportVolumeTask(conversion_task_id,driver,state,status_message,description,None,expiration_time,bytes_converted,
                                 availability_zone,image_format,image_size,image_import_manifest_url,volume_size,
-                                volume_id,manifest_file_name,s3_bucket_name)
+                                volume_id,manifest_file_name,s3_bucket_name,src_file)
         
     
     def _to_import_image_task_info(self,element,driver):
@@ -2947,10 +3075,11 @@ class ImportVolumeTask(TaskBase):
         volume_id=None
         manifest_file_name=None
         s3_bucket_name=None
+        src_file=None
         
         def __init__(self,task_id,driver,state,status_message=None,description=None,provider_task_id=None,expiration_time=None,bytes_converted=None,
                     availability_zone=None,image_format=None,image_size=None, image_import_manifest_url=None, volume_size=None,
-                    volume_id=None,manifest_file_name=None,s3_bucket_name=None):
+                    volume_id=None,manifest_file_name=None,s3_bucket_name=None,src_file=None):
             self.task_id=task_id
             self.driver=driver
             self.state=state
@@ -2968,6 +3097,7 @@ class ImportVolumeTask(TaskBase):
             self.name_space = 'http://ec2.amazonaws.com/doc/%s/' % (API_VERSION)
             self.manifest_file_name =manifest_file_name
             self.s3_bucket_name =s3_bucket_name
+            self.src_file=src_file
         
         def _cancel_task(self):
             params={
@@ -2986,7 +3116,7 @@ class ImportVolumeTask(TaskBase):
             params = {'Action': 'DescribeConversionTasks',
                       'ConversionTaskId.1':self.task_id}
             response = self.driver.connection.request(self.driver.path, params=params).object
-            task_infos = [self._to_import_volume_task_info(el,self.manifest_file_name,self.s3_bucket_name,self.driver) for el in response.findall(
+            task_infos = [self._to_import_volume_task_info(el,self.manifest_file_name,self.s3_bucket_name,self.src_file,self.driver) for el in response.findall(
                            fixxpath(xpath='conversionTasks/item', namespace=self.name_space))]
             if not task_infos:
                 raise TaskNotFound
@@ -2997,8 +3127,11 @@ class ImportVolumeTask(TaskBase):
         def _clean_tmp_file(self):
             if self.manifest_file_name is not None:
                 s3Driver=S3Adapter(self.driver.key,self.driver.secret,region=self.driver.region,secure=False)
-                s3_object=s3Driver.get_object(container_name=self.s3_bucket_name,object_name=self.manifest_file_name)
-                s3Driver.delete_object(s3_object)
+                s3_manifest_file_name=s3Driver.get_object(container_name=self.s3_bucket_name,object_name=self.manifest_file_name)
+                s3Driver.delete_object(s3_manifest_file_name)
+                s3_src_file=s3Driver.get_object(container_name=self.s3_bucket_name,object_name=self.src_file)
+                s3Driver.delete_object(s3_src_file)
+                
 
         def clean_up(self):
             return self._clean_tmp_file()
@@ -3017,7 +3150,7 @@ class ImportVolumeTask(TaskBase):
 
 
         
-        def _to_import_volume_task_info(self,element,manifest_file_name,s3_bucket_name,driver):
+        def _to_import_volume_task_info(self,element,manifest_file_name,s3_bucket_name,src_file,driver):
             """
             Parse the XML element and return a conversion_task_info object.
             :rtype:     :class:`conversion_task_info`
@@ -3051,7 +3184,7 @@ class ImportVolumeTask(TaskBase):
       
             return ImportVolumeTask(conversion_task_id,driver,state,status_message,description,None,expiration_time,bytes_converted,
                                     availability_zone,image_format,image_size,image_import_manifest_url,
-                                    volume_size,volume_id,manifest_file_name,s3_bucket_name)
+                                    volume_size,volume_id,manifest_file_name,s3_bucket_name,src_file)
             
 class ExportInstanceTask(TaskBase):
     instance_id=None
@@ -3224,3 +3357,7 @@ class Image(NodeImage):
                 for bdm in block_device_mappings:
                     bdm.get('ebs')['delete']=delete_on_termination
             
+    
+
+    
+ 
