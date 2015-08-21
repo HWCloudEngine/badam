@@ -49,7 +49,13 @@ from libcloud.storage.drivers.s3 import S3EUWestConnection
 from libcloud.storage.drivers.s3 import S3USWestConnection
 from libcloud.storage.drivers.s3 import S3USWestOregonConnection
 from libcloud.storage.drivers.s3 import S3APNEConnection
+from libcloud.common.aws import AWSRequestSigner
+from libcloud.common.aws import AWSRequestSignerAlgorithmV4
 from libcloud.utils.misc import lowercase_keys
+from libcloud.utils.py3 import b, httplib, urlquote
+from hashlib import sha256
+
+DEFAULT_SIGNATURE_VERSION=2
 
 API_VERSION = '2015-03-01'
 #NAMESPACE = 'http://ec2.amazonaws.com/doc/%s/' % (API_VERSION)
@@ -127,6 +133,56 @@ class  EC2ExtResponse(EC2Response):
 
         self.object = self.parse_body()
 
+class AWSExtRequestSignerAlgorithmV2(AWSRequestSigner):
+    def get_request_params(self, params, method='GET', path='/'):
+        params['SignatureVersion'] = '2'
+        params['SignatureMethod'] = 'HmacSHA256'
+        params['AWSAccessKeyId'] = self.access_key
+        params['Version'] = self.version
+        params['Timestamp'] = time.strftime('%Y-%m-%dT%H:%M:%SZ',
+                                            time.gmtime())
+        params['Signature'] = self._get_aws_auth_param(
+            params=params,
+            secret_key=self.access_secret,
+            method =method,
+            path=path)
+        return params
+
+    def _get_aws_auth_param(self, params, secret_key,method='GET', path='/'):
+        """
+        Creates the signature required for AWS, per
+        http://bit.ly/aR7GaQ [docs.amazonwebservices.com]:
+
+        StringToSign = HTTPVerb + "\n" +
+                       ValueOfHostHeaderInLowercase + "\n" +
+                       HTTPRequestURI + "\n" +
+                       CanonicalizedQueryString <from the preceding step>
+        """
+        connection = self.connection
+
+        keys = list(params.keys())
+        keys.sort()
+        pairs = []
+        for key in keys:
+            value = str(params[key])
+            pairs.append(urlquote(key, safe='') + '=' +
+                         urlquote(value, safe='-_~'))
+
+        qs = '&'.join(pairs)
+
+        hostname = connection.host
+        if (connection.secure and connection.port != 443) or \
+           (not connection.secure and connection.port != 80):
+            hostname += ':' + str(connection.port)
+
+        string_to_sign = '\n'.join((method, hostname, path, qs))
+
+        b64_hmac = base64.b64encode(
+            hmac.new(b(secret_key), b(string_to_sign),
+                     digestmod=sha256).digest()
+        )
+
+        return b64_hmac.decode('utf-8')
 
 
 
@@ -139,6 +195,28 @@ class HuaweiConnection(EC2Connection):
     
 class EC2ExtConnection(EC2Connection):
     responseCls = EC2ExtResponse
+    def __init__(self, user_id, key, secure=True, host=None, port=None,
+                 url=None, timeout=None, token=None,
+                 signature_version=DEFAULT_SIGNATURE_VERSION):
+        super(EC2ExtConnection, self).__init__(user_id=user_id, key=key,
+                                                  secure=secure, host=host,
+                                                  port=port, url=url,
+                                                  timeout=timeout, token=token)
+        self.signature_version = str(signature_version)
+
+        if self.signature_version == '2':
+            signer_cls = AWSExtRequestSignerAlgorithmV2
+        elif signature_version == '4':
+            signer_cls = AWSRequestSignerAlgorithmV4
+        else:
+            raise ValueError('Unsupported signature_version: %s' %
+                             (signature_version))
+
+        self.signer = signer_cls(access_key=self.user_id,
+                                 access_secret=self.key,
+                                 version=self.version,
+                                 connection=self)
+   
 
 class RetryDecorator(object):
     """Decorator for retrying a function upon suggested exceptions.
@@ -626,7 +704,7 @@ class Ec2Adapter(EC2NodeDriver):
             ex_network_interfaces = kwargs['ex_network_interfaces']
             params.update(self._get_network_interface_params(ex_network_interfaces))
            
-        object = self.connection.request(self.path, params=params).object
+        object = self.connection.request(self.path, params=params,method='POST').object
         nodes = self._to_nodes(object, 'instancesSet/item')
 
         for node in nodes:
@@ -2765,6 +2843,8 @@ class S3Adapter(S3StorageDriver):
             driver_info=DRIVER_INFO.get(region,None)
             if driver_info is not None:
                 return driver_info.get('connectionCls',S3Connection),driver_info.get('name','Amazon S3 (standard)'),driver_info.get('ex_location_name','')
+            else:
+                return S3Connection ,'Amazon S3 (standard)',''
                 
                 
     
