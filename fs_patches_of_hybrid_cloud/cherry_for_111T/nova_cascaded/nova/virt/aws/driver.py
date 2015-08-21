@@ -315,6 +315,7 @@ class AwsEc2Driver(driver.ComputeDriver):
     def _spawn_from_image(self, context, instance, image_meta, injected_files,
                                     admin_password, network_info, block_device_info):
         # 0.get provider_image,
+        LOG.error('begin time of _spawn_from_image is %s' %(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
         retry_time = 3
         provider_image_id = None
         provider_image = None
@@ -517,7 +518,13 @@ class AwsEc2Driver(driver.ComputeDriver):
         # 5 wait for node avalaible
         while provider_node.state!=NodeState.RUNNING and provider_node.state!=NodeState.STOPPED:
             try:
-                provider_node = self.compute_adapter.list_nodes(ex_node_ids=[provider_node.id])[0]
+                #modified by liuling
+                #provider_node = self.compute_adapter.list_nodes(ex_node_ids=[provider_node.id])[0]
+                provider_nodes = self.compute_adapter.list_nodes(ex_node_ids=[provider_node.id])
+                if len(provider_nodes) ==0:
+                    break
+                else:
+                    provider_node = provider_nodes[0]
             except:
                 LOG.warning('Provider instance is booting but adapter is failed to get status. Try it later')
             time.sleep(10)
@@ -544,6 +551,7 @@ class AwsEc2Driver(driver.ComputeDriver):
                 task_state=vm_task_state)
   
  
+        LOG.error('end time of _spawn_from_image is %s' %(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
         return provider_node
 
     def _trans_device_name(self, orig_name):
@@ -611,8 +619,6 @@ class AwsEc2Driver(driver.ComputeDriver):
     def spawn(self, context, instance, image_meta, injected_files,
               admin_password, network_info=None, block_device_info=None):
         """Create VM instance."""
-        # import pdb
-        # pdb.set_trace()
         LOG.debug(_("image meta is:%s") % image_meta)
         LOG.debug(_("instance is:%s") % instance)
         bdms = block_device_info.get('block_device_mapping',[])
@@ -938,11 +944,13 @@ class AwsEc2Driver(driver.ComputeDriver):
         return "hybrid_%s" % CONF.provider_opts.region
 
     def get_info(self, instance):
+        LOG.debug('begin get the instance %s info ' % instance.uuid)
         state = power_state.NOSTATE
 
         # xxx(wangfeng): it is too slow to connect to aws to get info. so I delete it
         
         node = self._get_provider_node(instance)
+        LOG.debug('end get the instance %s info ,provider node is %s ' % (instance.uuid,node.id))
         if  node:
             node_status = node.state
             try:
@@ -1154,6 +1162,30 @@ class AwsEc2Driver(driver.ComputeDriver):
                 instance_macs[subnet_id] = mac_address
             return instance_macs
 
+    def reboot(self, context, instance, network_info, reboot_type,
+               block_device_info=None, bad_volumes_callback=None):
+        """Reboot the specified instance.
+        """
+        # 1.get node
+        instance_id = instance.uuid
+        provider_node_id = self._get_provider_node_id(instance)
+        if not provider_node_id:
+            LOG.error('instance %s is not found' % instance_id)
+            raise exception.InstanceNotFound
+        else:
+            provider_nodes = self.compute_adapter.list_nodes(ex_node_ids=[provider_node_id])
+
+        if not provider_nodes:
+            LOG.error('instance %s is not found' % instance_id)
+            raise exception.InstanceNotFound
+        if len(provider_nodes)>1:
+            LOG.error('instance %s are more than one' % instance_id)
+            raise exception_ex.MultiInstanceConfusion
+        provider_node = provider_nodes[0]
+        try:
+            self.compute_adapter.reboot_node(provider_node)
+        except Exception as e:
+            raise e
 
 def qemu_img_info(path):
     """Return an object containing the parsed output from qemu-img info."""
