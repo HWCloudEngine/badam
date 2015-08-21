@@ -517,7 +517,13 @@ class AwsEc2Driver(driver.ComputeDriver):
         # 5 wait for node avalaible
         while provider_node.state!=NodeState.RUNNING and provider_node.state!=NodeState.STOPPED:
             try:
-                provider_node = self.compute_adapter.list_nodes(ex_node_ids=[provider_node.id])[0]
+                #modified by liuling
+                #provider_node = self.compute_adapter.list_nodes(ex_node_ids=[provider_node.id])[0]
+                provider_nodes = self.compute_adapter.list_nodes(ex_node_ids=[provider_node.id])
+                if len(provider_nodes) ==0:
+                    break
+                else:
+                    provider_node = provider_nodes[0]
             except:
                 LOG.warning('Provider instance is booting but adapter is failed to get status. Try it later')
             time.sleep(10)
