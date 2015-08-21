@@ -22,6 +22,7 @@ import logging
 import six
 
 from cinder.i18n import _, _LE, _LW
+from cinder import exception
 
 LOG = logging.getLogger(__name__)
 
@@ -39,7 +40,7 @@ TASK_IN_PROGRESS = 'TaskInProgress'
 DUPLICATE_NAME = 'DuplicateName'
 
 
-class VCloudDriverException(Exception):
+class VCloudDriverException(exception.CinderException):
 
     """Base VCloud Driver Exception
 

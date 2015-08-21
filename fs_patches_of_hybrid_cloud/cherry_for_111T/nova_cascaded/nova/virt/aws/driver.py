@@ -517,7 +517,13 @@ class AwsEc2Driver(driver.ComputeDriver):
         # 5 wait for node avalaible
         while provider_node.state!=NodeState.RUNNING and provider_node.state!=NodeState.STOPPED:
             try:
-                provider_node = self.compute_adapter.list_nodes(ex_node_ids=[provider_node.id])[0]
+                #modified by liuling
+                #provider_node = self.compute_adapter.list_nodes(ex_node_ids=[provider_node.id])[0]
+                provider_nodes = self.compute_adapter.list_nodes(ex_node_ids=[provider_node.id])
+                if len(provider_nodes) ==0:
+                    break
+                else:
+                    provider_node = provider_nodes[0]
             except:
                 LOG.warning('Provider instance is booting but adapter is failed to get status. Try it later')
             time.sleep(10)
@@ -938,11 +944,13 @@ class AwsEc2Driver(driver.ComputeDriver):
         return "hybrid_%s" % CONF.provider_opts.region
 
     def get_info(self, instance):
+        LOG.debug('begin get the instance %s info ' % instance.uuid)
         state = power_state.NOSTATE
 
         # xxx(wangfeng): it is too slow to connect to aws to get info. so I delete it
         
         node = self._get_provider_node(instance)
+        LOG.debug('end get the instance %s info ,provider node is %s ' % (instance.uuid,node.id))
         if  node:
             node_status = node.state
             try:
