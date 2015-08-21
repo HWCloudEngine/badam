@@ -277,8 +277,7 @@ class VCA(sdk_vca):
                                     task.href, headers=headers,
                                     verify=self.verify)
         if response.status_code == requests.codes.forbidden:
-            excep_msg = "Create_isolated_vdc_network error, network_name:%s"\
-                % (network_name)
+            excep_msg = "Get task result error, task :%s" % task
             raise exceptions.ForbiddenException(excep_msg)
         if response.status_code == requests.codes.ok:
             doc = self.parsexml_(response.content)
@@ -339,6 +338,9 @@ class VCA(sdk_vca):
                 else:
                     excep_msg = "Get_vdc failed, response:%s" % (response)
                     raise exceptions.VCloudDriverException(excep_msg)
+
+    def get_diskRefs(self, vdc_ref):
+        return super(VCA, self).get_diskRefs(vdc_ref)
 
     def session_is_active(self):
         """If session is not active, this will return false, else
