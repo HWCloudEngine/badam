@@ -13,13 +13,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
+from cinder import exception
 from cinder.volume.drivers.vcloud import exceptions
 from oslo.config import cfg
-from oslo.utils import excutils
 from oslo.vmware.common import loopingcall
 from oslo.utils import excutils
 from cinder.openstack.common import log as logging
-from cinder.i18n import _, _LI, _LW
+from cinder.i18n import _, _LI, _LW, _LE
 from threading import Lock
 import time
 import base64
@@ -45,6 +45,7 @@ from pyvcloud.vcloudair import VCA as sdk_vca
 from pyvcloud.vapp import VAPP as sdk_vapp
 
 LOG = logging.getLogger(__name__)
+
 
 class VCLOUD_STATUS:
     """
@@ -126,6 +127,7 @@ class RetryDecorator(object):
         self._exceptions = exceptions
         self._retry_count = 0
         self._sleep_time = 0
+
     def __call__(self, f):
 
         def _func(*args, **kwargs):
@@ -277,8 +279,8 @@ class VCA(sdk_vca):
                                     task.href, headers=headers,
                                     verify=self.verify)
         if response.status_code == requests.codes.forbidden:
-            excep_msg = "Create_isolated_vdc_network error, network_name:%s"\
-                % (network_name)
+            excep_msg = "Execute task error, task is: %s" \
+                % (task)
             raise exceptions.ForbiddenException(excep_msg)
         if response.status_code == requests.codes.ok:
             doc = self.parsexml_(response.content)
@@ -387,6 +389,43 @@ class VCA(sdk_vca):
 
         return VAPP(vapp.me, vapp.headers, vapp.verify)
 
+    def get_disk_ref(self, vdc_name, disk_name):
+        """
+
+        Request the references to disk volumes in a vdc.
+
+        :param vdc_name: (str): The name of the virtual data center.
+        :param disk_name: (str): The name of a disk.
+        :return: (tuple of (bool, task or str))  Two values are returned, \
+                 a bool success indicator and a class:`pyvcloud.schema.vcd.\
+                 v1_5.schemas.vcloud.vdcType.ResourceReferenceType` object \
+                 if the bool value was True or a str message indicating \
+                 the reason for failure if the bool value was False.
+        Use get_name(), get_type() and get_href() methods on each list entry to\
+        return disk details.
+
+        """
+        refs = self.get_diskRefs(self.get_vdc(vdc_name))
+        link = filter(lambda link: link.get_name() == disk_name, refs)
+        if len(link) == 1:
+            return True, link[0]
+        elif len(link) == 0:
+            return False, 'disk not found'
+        elif len(link) > 1:
+            return False, 'more than one disks found with that name.'
+
+    def add_disk(self, vdc_name, name, size):
+        result, resp = self.get_disk_ref(vdc_name, name)
+        if result:
+            error_msg = _("Add disk %s failed, because it already exist."
+                          % name)
+            LOG.error(error_msg)
+            raise exceptions.VCloudDriverException(error_msg)
+        return super(VCA, self).add_disk(vdc_name, name, size)
+
+    def delete_disk(self, vdc_name, name, id=None):
+        return super(VCA, self).delete_disk(vdc_name, name, id)
+
 
 class VAPP(sdk_vapp):
 
@@ -443,6 +482,8 @@ class VAPP(sdk_vapp):
         url = url.replace('descriptor.ovf', ref_file_id)
         return url
 
+    def attach_disk_to_vm(self, vm_name, disk_ref):
+        return super(VAPP, self).attach_disk_to_vm(vm_name, disk_ref)
 
 class VCloudAPISession(object):
 
@@ -633,12 +674,12 @@ class VCloudAPISession(object):
                 LOG.exception("Error occurred while reading info of "
                               "task: %s.", task)
         else:
-            if task_info['status'] in ['queued', 'running']:
+            if task_info['status'] in ['queued', 'running', '0']:
                 if hasattr(task_info, 'progress'):
                     LOG.debug("Task: %(task)s progress is %(progress)s%%.",
                               {'task': task,
                                'progress': task_info.progress})
-            elif task_info['status'] == 'success':
+            elif task_info['status'] in ['success', '1']:
                 LOG.debug("Task: %s status is success.", task)
                 raise loopingcall.LoopingCallDone(task_info)
             else:
@@ -660,29 +701,6 @@ class VCloudAPISession(object):
     def _get_error_message(self, lease):
         """Get error message associated with the given lease."""
         return "Unknown"
-
-
-    def call_method(self, module, method, *args, **kwargs):
-        """Calls a method within the module specified with
-        args provided.
-        """
-        return self.invoke_api(module, method, *args, **kwargs)
-
-    def _call_method(self, module, method, *args, **kwargs):
-        return self.invoke_api(module, method, *args, **kwargs)
-
-    def _wait_for_task(self, task):
-        """Waits for the given task to complete and returns the result.
-
-        The task is polled until it is done. The method returns the task
-        information upon successful completion. In case of any error,
-        appropriate exception is raised.
-
-        :param task: managed object reference of the task
-        :returns: task info upon successful completion of the task
-        :raises: Exception
-        """
-        return self.wait_for_task(task)
 
 
 

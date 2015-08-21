@@ -55,52 +55,56 @@ class TestNova(unittest2.TestCase):
         cls.name_ci_ext_net = 'ci-ext-net'
         cls.name_floating_ip_pool = 'ci-ext-net'
 
-
         # neutron net-create ci-ext-net --router:external True --provider:physical_network physnet1
         # --provider:network_type vlan --provider:segmentation_id 1000
-        cls.ci_ext_net = \
-            cls.ref_services.neutron_create_net('ci-ext-net',
-                                                      router_external=True,
-                                                      network_type='vlan',
-                                                      physical_network='physnet1',
-                                                      segment_id='1000')
-        cls.ci_ext_net_id = cls.ci_ext_net['network']['id']
+        # cls.ci_ext_net = \
+        #     cls.ref_services.neutron_create_net('ci-ext-net',
+        #                                               router_external=True,
+        #                                               network_type='vlan',
+        #                                               physical_network='physnet1',
+        #                                               segment_id='1000')
+        # cls.ci_ext_net_id = cls.ci_ext_net['network']['id']
+        cls.ci_ext_net_id = "3eb33036-2f10-4ce0-b288-ff9dd18cbfb9"
 
         # neutron subnet-create  ci-ext-net --name ci-ext-subnet
         # --allocation-pool start=162.3.130.100,end=162.3.130.130 --disable-dhcp --gateway 162.3.110.1 162.3.0.0/16
-        cls.ci_ext_subnet = \
-            cls.ref_services.neutron_create_subnet(cls.ci_ext_net_id,
-                                             'ci-ext-subnet01',
-                                             allocation_pools=[{"start": "162.3.130.100", "end": "162.3.130.130"}],
-                                             enable_dhcp=False,
-                                             gateway_ip='162.3.110.1',
-                                             cidr='162.3.0.0/16')
-        cls.ci_ext_subnet_id = cls.ci_ext_subnet['subnet']['id']
+        # cls.ci_ext_subnet = \
+        #     cls.ref_services.neutron_create_subnet(cls.ci_ext_net_id,
+        #                                      'ci-ext-subnet01',
+        #                                      allocation_pools=[{"start": "162.3.130.100", "end": "162.3.130.130"}],
+        #                                      enable_dhcp=False,
+        #                                      gateway_ip='162.3.110.1',
+        #                                      cidr='162.3.0.0/16')
+        # cls.ci_ext_subnet_id = cls.ci_ext_subnet['subnet']['id']
+        cls.ci_ext_subnet_id = "0269ac74-e46a-4a82-b359-fbaecb25050e"
 
         # neutron net-create ci-net01 --router:external False --provider:network_type vxlan
-        cls.ci_net01 = \
-            cls.ref_services.neutron_create_net('ci-net01',
-                                                      router_external=False,
-                                                      network_type='vxlan')
-        cls.ci_net01_id = cls.ci_net01['network']['id']
+        # cls.ci_net01 = \
+        #     cls.ref_services.neutron_create_net('ci-net01',
+        #                                               router_external=False,
+        #                                               network_type='vxlan')
+        # cls.ci_net01_id = cls.ci_net01['network']['id']
+        cls.ci_net01_id = "c4174afd-7513-4c7a-8efb-3e63dabe152f"
 
         # neutron subnet-create ci-net01 --name ci-subnet01  --allocation-pool start=192.168.145.2,end=192.168.145.50
         # --disable-dhcp --gateway 192.168.145.1 192.168.145.0/24
-        cls.ci_subnet01 = \
-            cls.ref_services.neutron_create_subnet(cls.ci_net01_id,
-                                             'ci-subnet01',
-                                             allocation_pools=[{"start": "192.168.145.2", "end": "192.168.145.50"}],
-                                             enable_dhcp=True,
-                                             gateway_ip='192.168.145.1',
-                                             cidr='192.168.145.0/24')
-        cls.ci_subnet01_id = cls.ci_subnet01['subnet']['id']
+        # cls.ci_subnet01 = \
+        #     cls.ref_services.neutron_create_subnet(cls.ci_net01_id,
+        #                                      'ci-subnet01',
+        #                                      allocation_pools=[{"start": "192.168.145.2", "end": "192.168.145.50"}],
+        #                                      enable_dhcp=True,
+        #                                      gateway_ip='192.168.145.1',
+        #                                      cidr='192.168.145.0/24')
+        # cls.ci_subnet01_id = cls.ci_subnet01['subnet']['id']
+        cls.ci_subnet01_id = "2836697c-ac30-45fe-82dd-b8cbf13cb4d0"
 
-        cls.ext_router_data = cls.ref_services.neutron_create_router(cls.ext_router)
-        cls.ext_router_id = cls.ext_router_data['router']['id']
+        # cls.ext_router_data = cls.ref_services.neutron_create_router(cls.ext_router)
+        # cls.ext_router_id = cls.ext_router_data['router']['id']
+        cls.ext_router_id = "19b4b453-d0e0-4b15-b103-3dd38d291cd3"
 
-        cls.ref_services.neutron_router_gateway_set(cls.ext_router_id, cls.ci_ext_net_id)
-
-        cls.ref_services.neutron_router_interface_add(cls.ext_router_id, cls.ci_subnet01_id)
+        # cls.ref_services.neutron_router_gateway_set(cls.ext_router_id, cls.ci_ext_net_id)
+        #
+        # cls.ref_services.neutron_router_interface_add(cls.ext_router_id, cls.ci_subnet01_id)
 
     @classmethod
     def tearDownClass(cls):
@@ -111,18 +115,18 @@ class TestNova(unittest2.TestCase):
         :return:
         """
 
-        CommonUtils.circle_call(cls.ref_services.neutron_router_interface_delete, 60, 1,
-                                router_id=cls.ext_router_id,
-                                subnet_id=cls.ci_subnet01_id)
-        CommonUtils.circle_call(cls.ref_services.neutron_router_gateway_clear, 60, 1,
-                                router_id=cls.ext_router_id)
-        CommonUtils.circle_call(cls.ref_services.neutron_delete_router, 60, 1, router_id=cls.ext_router_id)
-
-        CommonUtils.circle_call(cls.ref_services.neutron_delete_subnet, 60, 1, subnet_id=cls.ci_ext_subnet_id)
-        CommonUtils.circle_call(cls.ref_services.neutron_delete_net, 60, 1, net_id=cls.ci_ext_net_id)
-
-        CommonUtils.circle_call(cls.ref_services.neutron_delete_subnet, 60, 1, subnet_id=cls.ci_subnet01_id)
-        CommonUtils.circle_call(cls.ref_services.neutron_delete_net, 60, 1, net_id=cls.ci_net01_id)
+        # CommonUtils.circle_call(cls.ref_services.neutron_router_interface_delete, 60, 1,
+        #                         router_id=cls.ext_router_id,
+        #                         subnet_id=cls.ci_subnet01_id)
+        # CommonUtils.circle_call(cls.ref_services.neutron_router_gateway_clear, 60, 1,
+        #                         router_id=cls.ext_router_id)
+        # CommonUtils.circle_call(cls.ref_services.neutron_delete_router, 60, 1, router_id=cls.ext_router_id)
+        #
+        # CommonUtils.circle_call(cls.ref_services.neutron_delete_subnet, 60, 1, subnet_id=cls.ci_ext_subnet_id)
+        # CommonUtils.circle_call(cls.ref_services.neutron_delete_net, 60, 1, net_id=cls.ci_ext_net_id)
+        #
+        # CommonUtils.circle_call(cls.ref_services.neutron_delete_subnet, 60, 1, subnet_id=cls.ci_subnet01_id)
+        # CommonUtils.circle_call(cls.ref_services.neutron_delete_net, 60, 1, net_id=cls.ci_net01_id)
 
     def _check_vm_status(self, created_server, aim_status, check_times, check_interval):
         status_last_check = ''
@@ -180,7 +184,7 @@ class TestNova(unittest2.TestCase):
         result_server_exist = self._check_server_exist(created_server, 60, 5)
         self.assertEqual('not exist', result_server_exist)
 
-    @unittest2.skip("demonstrating skipping")
+    #@unittest2.skip("demonstrating skipping")
     def test_create_vm_in_az11(self):
         ACTIVE_STATUS = 'ACTIVE'
         SERVER_NAME = 'ci-az11-vm-01'
