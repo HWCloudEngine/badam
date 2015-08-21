@@ -51,8 +51,9 @@ from nova.virt.vcloudapi import vcloud_network_utils
 from nova.virt.vcloudapi import util
 from nova.virt.vcloudapi.vcloudair import *
 from nova.virt.vcloudapi.vcloudair import VCloudAPISession as VCASession
-
+from nova.volume.cinder import API as cinder_api
 from nova.virt.vcloudapi import vcloud_task_states
+from nova import context
 
 vcloudapi_opts = [
 
@@ -181,6 +182,7 @@ class VMwareVcloudDriver(driver.ComputeDriver):
         self.instances = {}
         self._node_name = CONF.vcloud.vcloud_node_name
         self._session = VCloudAPISession(scheme=scheme)
+        self.cinder_api = cinder_api()
 
         if not os.path.exists(CONF.vcloud.vcloud_conversion_dir):
             os.makedirs(CONF.vcloud.vcloud_conversion_dir)
@@ -245,27 +247,40 @@ class VMwareVcloudDriver(driver.ComputeDriver):
             return the_vapp
 
     def _power_off_vapp(self, the_vapp):
+        vm_details = the_vapp.get_vms_details()
+        if len(vm_details) > 0 and vm_details[0].get('status') == 'Powered off':
+            return the_vapp
         task_stop = self._session._call_method(the_vapp,
                                                "undeploy")
         if not task_stop:
             raise exception.NovaException(
-                "undeploy vapp failed, task")
+                "power off vapp failed, task")
         self._session._wait_for_task(task_stop)
-        return self._get_vcloud_vapp(the_vapp.name)
+        return the_vapp
 
     def _power_on_vapp(self, the_vapp):
+        vm_details = the_vapp.get_vms_details()
+        if len(vm_details) > 0 and vm_details[0].get('status') == 'Powered on':
+            return the_vapp
         task = self._session._call_method(the_vapp, "poweron")
         if not task:
             raise exception.NovaException(
-                "deploy vapp failed, task")
+                "power on vapp failed, task")
         self._session._wait_for_task(task)
-        return self._get_vcloud_vapp(the_vapp.name)
+        return the_vapp
 
     def _delete_vapp(self, the_vapp):
         task = self._session._call_method(the_vapp, "delete")
         if not task:
             raise exception.NovaException(
                 "delete vapp failed, task: %s" % task)
+        self._session._wait_for_task(task)
+
+    def _reboot_vapp(self, the_vapp):
+        task = self._session._call_method(the_vapp, "reboot")
+        if not task:
+            raise exception.NovaException(
+                "reboot vapp failed, task: %s" % task)
         self._session._wait_for_task(task)
 
     def _query_vmdk_url(self, the_vapp):
@@ -300,15 +315,42 @@ class VMwareVcloudDriver(driver.ComputeDriver):
                 "get vmdk file url failed")
         return referenced_file_url
 
+    def _get_disk_ref(self, disk_name):
+        vdc_ref = self._get_vcloud_vdc()
+        disk_refs = self._session._call_method(self._session.vca, 'get_diskRefs',
+                                          vdc_ref)
+        link = filter(lambda link: link.get_name() == disk_name, disk_refs)
+        if len(link) == 1:
+            return True, link[0]
+        elif len(link) == 0:
+            return False, 'disk not found'
+        elif len(link) > 1:
+            return False, 'more than one disks found with that name.'
+
+    def _attach_disk_to_vm(self, the_vapp, disk_ref):
+        task = the_vapp.attach_disk_to_vm(the_vapp.name, disk_ref)
+        if not task:
+            raise exception.NovaException(
+                "Unable to attach disk to vm %s" % the_vapp.name)
+        else:
+            self._session._wait_for_task(task)
+            return True
+
+    def _detach_disk_from_vm(self, the_vapp, disk_ref):
+        task = the_vapp.detach_disk_from_vm(the_vapp.name, disk_ref)
+        if not task:
+            raise exception.NovaException(
+                "Unable to detach disk from vm %s" % the_vapp.name)
+        else:
+            self._session._wait_for_task(task)
+            return True
+
     def init_host(self, host):
         return
 
     def list_instances(self):
         # xxx
         return self.instances.keys()
-
-    def list_instance_uuids(self):
-        return
 
     def plug_vifs(self, instance, network_info):
         """Plug VIFs into networks."""
@@ -371,6 +413,8 @@ class VMwareVcloudDriver(driver.ComputeDriver):
 
         #import pdb
         # pdb.set_trace()
+        LOG.error('begin time of vcloud create vm is %s' %
+                  (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
 
         LOG.debug('[vcloud nova driver] spawn: %s' % instance.uuid)
 
@@ -410,7 +454,8 @@ class VMwareVcloudDriver(driver.ComputeDriver):
         vm_task_state = instance.task_state
 
         # 1.3 (optional)
-        is_poweron = True
+        # NOTE(luqitao) power on the vm after attaching volume finished.
+        is_poweron = False
 
         # 2~3 get vmdk file. check if the image or volume vmdk file cached first
         image_cache_dir = CONF.vcloud.vcloud_conversion_dir
@@ -608,6 +653,15 @@ class VMwareVcloudDriver(driver.ComputeDriver):
             LOG.debug('vapp status: %s' % vapp_status)
             retry_times = retry_times - 1
 
+        # attach multi disks
+        for vol in block_device_mapping:
+            connection_info = vol['connection_info']
+            # unused param mountpoint, so i give a fake string of sdb
+            self.attach_volume(context, connection_info, instance, '/dev/sdb')
+
+        # power on it
+        self._power_on_vapp(self._get_vcloud_vapp(vapp_name))
+
         # 7. clean up
         self._update_vm_task_state(instance, task_state=vm_task_state)
         shutil.rmtree(this_conversion_dir, ignore_errors=True)
@@ -616,6 +670,8 @@ class VMwareVcloudDriver(driver.ComputeDriver):
         # fileutils.delete_if_exists(ovf_name)
         # fileutils.delete_if_exists(vm_uuid + '-disk1.vmdk')
         # os.rename(converted_file_name, image_vmdk_file_name)
+        LOG.error('end time of vcloud create vm is %s' %
+                  (time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
 
     def _get_vcloud_vapp_status(self, vapp_name):
         the_vapp = self._get_vcloud_vapp(vapp_name)
@@ -630,6 +686,15 @@ class VMwareVcloudDriver(driver.ComputeDriver):
             return instance.display_name
         else:
             return instance.uuid
+
+    def _get_vcloud_volume_name(self, volume_id, volume_name):
+        prefix = 'volume@'
+        if volume_name.startswith(prefix):
+            vcloud_volume_name = volume_name[len(prefix):]
+        else:
+            vcloud_volume_name = volume_id
+
+        return vcloud_volume_name
 
     def _download_vmdk_from_vcloud(self, context, src_url, dst_file_name):
 
@@ -719,7 +784,17 @@ class VMwareVcloudDriver(driver.ComputeDriver):
 
     def reboot(self, context, instance, network_info, reboot_type,
                block_device_info=None, bad_volumes_callback=None):
-        pass
+        LOG.debug('[vcloud nova driver] begin reboot instance: %s' %
+                  instance.uuid)
+        vapp_name = self._get_vcloud_vapp_name(instance)
+        the_vapp = self._get_vcloud_vapp(vapp_name)
+
+        try:
+            self._reboot_vapp(the_vapp)
+        except:
+            LOG.error('reboot instance %s failed' % vapp_name)
+        LOG.debug('[vcloud nova driver] end reboot instance: %s' %
+                  instance.uuid)
 
     @staticmethod
     def get_host_ip_addr():
@@ -797,13 +872,14 @@ class VMwareVcloudDriver(driver.ComputeDriver):
     def _do_destroy_vm(self, context, instance, network_info, block_device_info=None,
                        destroy_disks=True, migrate_data=None):
 
-        is_quick_delete = bool(
-            instance.metadata.get(
-                'quick_delete_once',
-                False))
-
-        instance.metadata['quick_delete_once'] = False
-        instance.save()
+        # is_quick_delete = bool(
+        #     instance.metadata.get(
+        #         'quick_delete_once',
+        #         False))
+        #
+        # instance.metadata['quick_delete_once'] = False
+        # instance.save()
+        is_quick_delete = True
 
         try:
             vapp_name = self._get_vcloud_vapp_name(instance)
@@ -872,18 +948,69 @@ class VMwareVcloudDriver(driver.ComputeDriver):
     def attach_volume(self, context, connection_info, instance, mountpoint,
                       disk_bus=None, device_type=None, encryption=None):
         """Attach the disk to the instance at mountpoint using info."""
-#         instance_name = instance['name']
-#         if instance_name not in self._mounts:
-#             self._mounts[instance_name] = {}
-#         self._mounts[instance_name][mountpoint] = connection_info
+        instance_name = instance['display_name']
+        LOG.debug("Attach_volume: %(connection_info)s to %(instance_name)s",
+                  {'connection_info': connection_info,
+                   'instance_name': instance_name})
+        volume_id = connection_info['data']['volume_id']
+
+        volume = self.cinder_api.get(context, volume_id)
+        volume_name = volume['display_name']
+        # use volume_name as vcloud disk name, remove prefix str `volume@`
+        # if volume_name does not start with volume@, then use volume id instead
+        vcloud_volume_name = self._get_vcloud_volume_name(volume_id,
+                                                          volume_name)
+
+        # find volume reference by it's name
+        vapp_name = self._get_vcloud_vapp_name(instance)
+        the_vapp = self._get_vcloud_vapp(vapp_name)
+        result, resp = self._get_disk_ref(vcloud_volume_name)
+        if result:
+            LOG.debug("Find volume successful, disk name is: %(disk_name)s"
+                      "disk ref's href is: %(disk_href)s.",
+                      {'disk_name': vcloud_volume_name,
+                       'disk_href': resp.href})
+        else:
+            LOG.error(_('Unable to find volume %s to instance'),
+                      vcloud_volume_name)
+
+        if self._attach_disk_to_vm(the_vapp, resp):
+            LOG.info("Volume %(volume_name)s attached to: %(instance_name)s",
+                     {'volume_name': vcloud_volume_name,
+                      'instance_name': instance_name})
 
     def detach_volume(self, connection_info, instance, mountpoint,
                       encryption=None):
         """Detach the disk attached to the instance."""
-#         try:
-#             del self._mounts[instance['name']][mountpoint]
-#         except KeyError:
-#             pass
+        instance_name = instance['display_name']
+        LOG.debug("Detach_volume: %(connection_info)s to %(instance_name)s",
+                  {'connection_info': connection_info,
+                   'instance_name': instance_name})
+
+        volume_id = connection_info['data']['volume_id']
+        volume_name = connection_info['data']['display_name']
+
+        # use volume_name as vcloud disk name, remove prefix str `volume@`
+        # if volume_name does not start with volume@, then use volume id instead
+        vcloud_volume_name = self._get_vcloud_volume_name(volume_id,
+                                                          volume_name)
+        # find volume reference by it's name
+        vapp_name = self._get_vcloud_vapp_name(instance)
+        the_vapp = self._get_vcloud_vapp(vapp_name)
+        result, resp = self._get_disk_ref(vcloud_volume_name)
+        if result:
+            LOG.debug("Find volume successful, disk name is: %(disk_name)s"
+                      "disk ref's href is: %(disk_href)s.",
+                      {'disk_name': vcloud_volume_name,
+                       'disk_href': resp.href})
+        else:
+            LOG.error(_('Unable to find volume from instance %s'),
+                      vcloud_volume_name)
+
+        if self._detach_disk_from_vm(the_vapp, resp):
+            LOG.info("Volume %(volume_name)s detached from: %(instance_name)s",
+                     {'volume_name': vcloud_volume_name,
+                      'instance_name': instance_name})
 
     def swap_volume(self, old_connection_info, new_connection_info,
                     instance, mountpoint, resize_to):
