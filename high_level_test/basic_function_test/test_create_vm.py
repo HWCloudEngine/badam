@@ -64,7 +64,7 @@ class TestNova(unittest2.TestCase):
         #                                               physical_network='physnet1',
         #                                               segment_id='1000')
         # cls.ci_ext_net_id = cls.ci_ext_net['network']['id']
-        cls.ci_ext_net_id = "5e184a96-8f03-428e-aec6-893e1a007d25"
+        cls.ci_ext_net_id = "3eb33036-2f10-4ce0-b288-ff9dd18cbfb9"
 
         # neutron subnet-create  ci-ext-net --name ci-ext-subnet
         # --allocation-pool start=162.3.130.100,end=162.3.130.130 --disable-dhcp --gateway 162.3.110.1 162.3.0.0/16
@@ -76,7 +76,7 @@ class TestNova(unittest2.TestCase):
         #                                      gateway_ip='162.3.110.1',
         #                                      cidr='162.3.0.0/16')
         # cls.ci_ext_subnet_id = cls.ci_ext_subnet['subnet']['id']
-        cls.ci_ext_subnet_id = "ec7bea93-bb78-4878-bc14-26f9590a337b"
+        cls.ci_ext_subnet_id = "0269ac74-e46a-4a82-b359-fbaecb25050e"
 
         # neutron net-create ci-net01 --router:external False --provider:network_type vxlan
         # cls.ci_net01 = \
@@ -98,12 +98,13 @@ class TestNova(unittest2.TestCase):
         # cls.ci_subnet01_id = cls.ci_subnet01['subnet']['id']
         cls.ci_subnet01_id = "2836697c-ac30-45fe-82dd-b8cbf13cb4d0"
 
-        cls.ext_router_data = cls.ref_services.neutron_create_router(cls.ext_router)
-        cls.ext_router_id = cls.ext_router_data['router']['id']
+        # cls.ext_router_data = cls.ref_services.neutron_create_router(cls.ext_router)
+        # cls.ext_router_id = cls.ext_router_data['router']['id']
+        cls.ext_router_id = "19b4b453-d0e0-4b15-b103-3dd38d291cd3"
 
-        cls.ref_services.neutron_router_gateway_set(cls.ext_router_id, cls.ci_ext_net_id)
-
-        cls.ref_services.neutron_router_interface_add(cls.ext_router_id, cls.ci_subnet01_id)
+        # cls.ref_services.neutron_router_gateway_set(cls.ext_router_id, cls.ci_ext_net_id)
+        #
+        # cls.ref_services.neutron_router_interface_add(cls.ext_router_id, cls.ci_subnet01_id)
 
     @classmethod
     def tearDownClass(cls):
@@ -114,18 +115,18 @@ class TestNova(unittest2.TestCase):
         :return:
         """
 
-        CommonUtils.circle_call(cls.ref_services.neutron_router_interface_delete, 60, 1,
-                                router_id=cls.ext_router_id,
-                                subnet_id=cls.ci_subnet01_id)
-        CommonUtils.circle_call(cls.ref_services.neutron_router_gateway_clear, 60, 1,
-                                router_id=cls.ext_router_id)
-        CommonUtils.circle_call(cls.ref_services.neutron_delete_router, 60, 1, router_id=cls.ext_router_id)
-
-        CommonUtils.circle_call(cls.ref_services.neutron_delete_subnet, 60, 1, subnet_id=cls.ci_ext_subnet_id)
-        CommonUtils.circle_call(cls.ref_services.neutron_delete_net, 60, 1, net_id=cls.ci_ext_net_id)
-
-        CommonUtils.circle_call(cls.ref_services.neutron_delete_subnet, 60, 1, subnet_id=cls.ci_subnet01_id)
-        CommonUtils.circle_call(cls.ref_services.neutron_delete_net, 60, 1, net_id=cls.ci_net01_id)
+        # CommonUtils.circle_call(cls.ref_services.neutron_router_interface_delete, 60, 1,
+        #                         router_id=cls.ext_router_id,
+        #                         subnet_id=cls.ci_subnet01_id)
+        # CommonUtils.circle_call(cls.ref_services.neutron_router_gateway_clear, 60, 1,
+        #                         router_id=cls.ext_router_id)
+        # CommonUtils.circle_call(cls.ref_services.neutron_delete_router, 60, 1, router_id=cls.ext_router_id)
+        #
+        # CommonUtils.circle_call(cls.ref_services.neutron_delete_subnet, 60, 1, subnet_id=cls.ci_ext_subnet_id)
+        # CommonUtils.circle_call(cls.ref_services.neutron_delete_net, 60, 1, net_id=cls.ci_ext_net_id)
+        #
+        # CommonUtils.circle_call(cls.ref_services.neutron_delete_subnet, 60, 1, subnet_id=cls.ci_subnet01_id)
+        # CommonUtils.circle_call(cls.ref_services.neutron_delete_net, 60, 1, net_id=cls.ci_net01_id)
 
     def _check_vm_status(self, created_server, aim_status, check_times, check_interval):
         status_last_check = ''
