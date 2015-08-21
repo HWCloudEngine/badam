@@ -55,7 +55,6 @@ class TestNova(unittest2.TestCase):
         cls.name_ci_ext_net = 'ci-ext-net'
         cls.name_floating_ip_pool = 'ci-ext-net'
 
-
         # neutron net-create ci-ext-net --router:external True --provider:physical_network physnet1
         # --provider:network_type vlan --provider:segmentation_id 1000
         cls.ci_ext_net = \
@@ -64,7 +63,8 @@ class TestNova(unittest2.TestCase):
                                                       network_type='vlan',
                                                       physical_network='physnet1',
                                                       segment_id='1000')
-        cls.ci_ext_net_id = cls.ci_ext_net['network']['id']
+        # cls.ci_ext_net_id = cls.ci_ext_net['network']['id']
+        cls.ci_ext_net_id = "5e184a96-8f03-428e-aec6-893e1a007d25"
 
         # neutron subnet-create  ci-ext-net --name ci-ext-subnet
         # --allocation-pool start=162.3.130.100,end=162.3.130.130 --disable-dhcp --gateway 162.3.110.1 162.3.0.0/16
@@ -75,14 +75,16 @@ class TestNova(unittest2.TestCase):
                                              enable_dhcp=False,
                                              gateway_ip='162.3.110.1',
                                              cidr='162.3.0.0/16')
-        cls.ci_ext_subnet_id = cls.ci_ext_subnet['subnet']['id']
+        # cls.ci_ext_subnet_id = cls.ci_ext_subnet['subnet']['id']
+        cls.ci_ext_subnet_id = "ec7bea93-bb78-4878-bc14-26f9590a337b"
 
         # neutron net-create ci-net01 --router:external False --provider:network_type vxlan
         cls.ci_net01 = \
             cls.ref_services.neutron_create_net('ci-net01',
                                                       router_external=False,
                                                       network_type='vxlan')
-        cls.ci_net01_id = cls.ci_net01['network']['id']
+        # cls.ci_net01_id = cls.ci_net01['network']['id']
+        cls.ci_net01_id = "c4174afd-7513-4c7a-8efb-3e63dabe152f"
 
         # neutron subnet-create ci-net01 --name ci-subnet01  --allocation-pool start=192.168.145.2,end=192.168.145.50
         # --disable-dhcp --gateway 192.168.145.1 192.168.145.0/24
@@ -93,7 +95,8 @@ class TestNova(unittest2.TestCase):
                                              enable_dhcp=True,
                                              gateway_ip='192.168.145.1',
                                              cidr='192.168.145.0/24')
-        cls.ci_subnet01_id = cls.ci_subnet01['subnet']['id']
+        # cls.ci_subnet01_id = cls.ci_subnet01['subnet']['id']
+        cls.ci_subnet01_id = "2836697c-ac30-45fe-82dd-b8cbf13cb4d0"
 
         cls.ext_router_data = cls.ref_services.neutron_create_router(cls.ext_router)
         cls.ext_router_id = cls.ext_router_data['router']['id']
