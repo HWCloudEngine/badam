@@ -35,21 +35,21 @@ from eventlet import timeout
 from cinder import exception
 from cinder.i18n import _
 from cinder.openstack.common import log as logging
+# from cinder.volume.drivers.vmware import error_util
+# from cinder.volume.drivers.vmware import io_util
+# from cinder.volume.drivers.vmware import read_write_util as rw_util
 
-import contextlib
-import os
-import tempfile
-
-from oslo.config import cfg
-
-from cinder import exception
-from cinder.openstack.common import fileutils
-from cinder.openstack.common import imageutils
-# from cinder.openstack.common import processutils
-from cinder.openstack.common import timeutils
-from cinder.openstack.common import units
-from cinder import utils
-from cinder.volume import utils as volume_utils
+# from nova import exception
+# from nova.i18n import _
+# from nova import image
+# from nova.openstack.common import log as logging
+#
+# from nova import utils
+# from nova import exception
+# from nova.openstack.common import log as logging
+import urllib2
+import thread
+# from nova.virt.vmwareapi import io_util
 
 
 LOG = logging.getLogger(__name__)
@@ -59,13 +59,6 @@ GLANCE_POLL_INTERVAL = 5
 READ_CHUNKSIZE = 65536
 QUEUE_BUFFER_SIZE = 10
 
-
-image_helper_opt = [cfg.StrOpt('image_conversion_dir',
-                               default='$state_path/conversion',
-                               help='Directory used for temporary storage '
-                                    'during image conversion'), ]
-CONF = cfg.CONF
-CONF.register_opts(image_helper_opt)
 
 class GlanceFileRead(object):
     """Glance file read handler class."""
@@ -134,6 +127,8 @@ class GlanceWriteThread(object):
                                                'meta': self.image_meta})
 
             try:
+                import pdb
+                pdb.set_trace()
                 self.image_service.update(self.context,
                                           self.image_id,
                                           self.image_meta,
@@ -282,6 +277,8 @@ def start_transfer(context, timeout_secs, read_file_handle, max_data_size,
     and not the addition of the two times.
     """
 
+    import pdb
+    pdb.set_trace()
     if not image_meta:
         image_meta = {}
 
@@ -335,108 +332,6 @@ def start_transfer(context, timeout_secs, read_file_handle, max_data_size,
             write_file_handle.close()
 
 
-
 class ImageTransferException(exception.CinderException):
     """Thrown when there is an error during image transfer."""
     message = _("Error occurred during image transfer.")
-
-def upload_volume(context, image_service, image_meta, volume_path,
-                  volume_format='raw'):
-    image_id = image_meta['id']
-    if (image_meta['disk_format'] == volume_format):
-        LOG.debug("%s was %s, no need to convert to %s" %
-                  (image_id, volume_format, image_meta['disk_format']))
-        if os.name == 'nt' or os.access(volume_path, os.R_OK):
-            with fileutils.file_open(volume_path, 'rb') as image_file:
-                image_service.update(context, image_id, {}, image_file)
-        else:
-            with utils.temporary_chown(volume_path):
-                with fileutils.file_open(volume_path) as image_file:
-                    image_service.update(context, image_id, {}, image_file)
-        return
-
-    if (CONF.image_conversion_dir and not
-            os.path.exists(CONF.image_conversion_dir)):
-        os.makedirs(CONF.image_conversion_dir)
-
-    fd, tmp = tempfile.mkstemp(dir=CONF.image_conversion_dir)
-    os.close(fd)
-    with fileutils.remove_path_on_error(tmp):
-        LOG.debug("%s was %s, converting to %s" %
-                  (image_id, volume_format, image_meta['disk_format']))
-        convert_image(volume_path, tmp, image_meta['disk_format'],
-                      bps_limit=CONF.volume_copy_bps_limit,is_qcow_compress=True)
-
-        data = qemu_img_info(tmp)
-        if data.file_format != image_meta['disk_format']:
-            raise exception.ImageUnacceptable(
-                image_id=image_id,
-                reason=_("Converted to %(f1)s, but format is now %(f2)s") %
-                {'f1': image_meta['disk_format'], 'f2': data.file_format})
-
-        with fileutils.file_open(tmp, 'rb') as image_file:
-            image_service.update(context, image_id, {}, image_file)
-        fileutils.delete_if_exists(tmp)
-
-def convert_image(source, dest, out_format, bps_limit=None, is_qcow_compress=False):
-    """Convert image to other format."""
-
-    cmd = ('qemu-img', 'convert',
-           '-O', out_format, source, dest)
-
-    if is_qcow_compress and out_format=='qcow2':
-        cmd = ('qemu-img', 'convert',
-               '-c',
-               '-O', out_format, source, dest)
-    else:
-        cmd = ('qemu-img', 'convert',
-               '-O', out_format, source, dest)
-
-    # Check whether O_DIRECT is supported and set '-t none' if it is
-    # This is needed to ensure that all data hit the device before
-    # it gets unmapped remotely from the host for some backends
-    # Reference Bug: #1363016
-
-    # NOTE(jdg): In the case of file devices qemu does the
-    # flush properly and more efficiently than would be done
-    # setting O_DIRECT, so check for that and skip the
-    # setting for non BLK devs
-    if (utils.is_blk_device(dest) and
-            volume_utils.check_for_odirect_support(source,
-                                                   dest,
-                                                   'oflag=direct')):
-        cmd = ('qemu-img', 'convert',
-               '-t', 'none',
-               '-O', out_format, source, dest)
-
-    start_time = timeutils.utcnow()
-    cgcmd = volume_utils.setup_blkio_cgroup(source, dest, bps_limit)
-    if cgcmd:
-        cmd = tuple(cgcmd) + cmd
-    utils.execute(*cmd, run_as_root=True)
-
-    duration = timeutils.delta_seconds(start_time, timeutils.utcnow())
-
-    # NOTE(jdg): use a default of 1, mostly for unit test, but in
-    # some incredible event this is 0 (cirros image?) don't barf
-    if duration < 1:
-        duration = 1
-    fsz_mb = os.stat(source).st_size / units.Mi
-    mbps = (fsz_mb / duration)
-    msg = ("Image conversion details: src %(src)s, size %(sz).2f MB, "
-           "duration %(duration).2f sec, destination %(dest)s")
-    LOG.debug(msg % {"src": source,
-                     "sz": fsz_mb,
-                     "duration": duration,
-                     "dest": dest})
-
-    msg = _("Converted %(sz).2f MB image at %(mbps).2f MB/s")
-    LOG.info(msg % {"sz": fsz_mb, "mbps": mbps})
-
-def qemu_img_info(path):
-    """Return an object containing the parsed output from qemu-img info."""
-    cmd = ('env', 'LC_ALL=C', 'qemu-img', 'info', path)
-    if os.name == 'nt':
-        cmd = cmd[2:]
-    out, err = utils.execute(*cmd, run_as_root=True)
-    return imageutils.QemuImgInfo(out)
