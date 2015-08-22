@@ -156,8 +156,8 @@ class TestNova(unittest2.TestCase):
         return 'exist'
 
     def remote_execute(self, host, cmd):
-        ssh = SSH('root', host, password='magento')
         try:
+            ssh = SSH('root', host, password='magento')
             exit_status, stdout, stderr = ssh.execute(cmd)
             return exit_status, stdout, stderr
         except Exception, e:
