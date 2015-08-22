@@ -51,6 +51,7 @@ class TestNova(unittest2.TestCase):
         cls.region_az01 = 'az01.shenzhen--fusionsphere'
         cls.region_az11 = 'az11.shenzhen--vcloud'
         cls.region_az31 = 'az31.singapore--aws'
+        cls.region_az32 = 'az32.singapore--aws'
         cls.ext_router = 'ext-router'
         cls.name_ci_ext_net = 'ci-ext-net'
         cls.name_floating_ip_pool = 'ci-ext-net'
@@ -156,8 +157,8 @@ class TestNova(unittest2.TestCase):
         return 'exist'
 
     def remote_execute(self, host, cmd):
-        ssh = SSH('root', host, password='magento')
         try:
+            ssh = SSH('root', host, password='magento')
             exit_status, stdout, stderr = ssh.execute(cmd)
             return exit_status, stdout, stderr
         except Exception, e:
@@ -184,7 +185,6 @@ class TestNova(unittest2.TestCase):
         result_server_exist = self._check_server_exist(created_server, 60, 5)
         self.assertEqual('not exist', result_server_exist)
 
-    @unittest2.skip("demonstrating skipping")
     def test_create_vm_in_az11(self):
         ACTIVE_STATUS = 'ACTIVE'
         SERVER_NAME = 'ci-az11-vm-01'
@@ -201,7 +201,6 @@ class TestNova(unittest2.TestCase):
         result_server_exist = self._check_server_exist(created_server, 60, 5)
         self.assertEqual('not exist', result_server_exist)
 
-    @unittest2.skip("demonstrating skipping")
     def test_create_vm_in_az31(self):
         ACTIVE_STATUS = 'ACTIVE'
         SERVER_NAME = 'ci-az31-vm-01'
@@ -217,19 +216,30 @@ class TestNova(unittest2.TestCase):
         result_server_exist = self._check_server_exist(created_server, 60, 5)
         self.assertEqual('not exist', result_server_exist)
 
-    @unittest2.skip("demonstrating skipping")
+    def test_create_vm_in_az32(self):
+        ACTIVE_STATUS = 'ACTIVE'
+        SERVER_NAME = 'ci-az32-vm-01'
+        nics = [{'net-id': self.ci_net01_id}]
+        created_server = self.ref_services.nova_create(name=SERVER_NAME,
+                         image=self.image_id_emall_backend,
+                         flavor=1,
+                         availability_zone=self.region_az32,
+                         nics=nics)
+        status_last_check = self._check_vm_status(created_server, ACTIVE_STATUS, 120, 5)
+
+        self.ref_services.nova_delete(created_server)
+        result_server_exist = self._check_server_exist(created_server, 60, 5)
+        self.assertEqual('not exist', result_server_exist)
+
     def test_l2_connection_between_az01_az11(self):
         self._test_l2_connection_between_two_az(self.region_az01, self.region_az11, 36, 60, 120)
 
-    @unittest2.skip("demonstrating skipping")
     def test_l2_connection_between_az01_az01(self):
         self._test_l2_connection_between_two_az(self.region_az01, self.region_az01, 36, 36, 120)
 
-    @unittest2.skip("demonstrating skipping")
     def test_l2_connection_between_az01_az31(self):
         self._test_l2_connection_between_two_az(self.region_az01, self.region_az31, 24, 120, 120)
 
-    @unittest2.skip("demonstrating skipping")
     def test_l2_connection_between_az11_az31(self):
         self._test_l2_connection_between_two_az(self.region_az11, self.region_az31, 60, 120, 120)
 

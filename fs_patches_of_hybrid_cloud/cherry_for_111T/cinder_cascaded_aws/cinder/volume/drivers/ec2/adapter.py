@@ -2843,6 +2843,8 @@ class S3Adapter(S3StorageDriver):
             driver_info=DRIVER_INFO.get(region,None)
             if driver_info is not None:
                 return driver_info.get('connectionCls',S3Connection),driver_info.get('name','Amazon S3 (standard)'),driver_info.get('ex_location_name','')
+            else:
+                return S3Connection ,'Amazon S3 (standard)',''
                 
                 
     
