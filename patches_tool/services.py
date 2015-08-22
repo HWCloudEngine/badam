@@ -616,7 +616,8 @@ class CPSServiceBusiness(object):
         for role in roles_list:
             if 'compute-proxy' in role:
                 proxy_number = role.split('-')[1]
-                return proxy_match_region[proxy_number]
+                if proxy_match_region.get(proxy_number):
+                    return proxy_match_region[proxy_number]
         return
 
 class RefFsUtils(object):
