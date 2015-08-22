@@ -944,11 +944,13 @@ class AwsEc2Driver(driver.ComputeDriver):
         return "hybrid_%s" % CONF.provider_opts.region
 
     def get_info(self, instance):
+        LOG.debug('begin get the instance %s info ' % instance.uuid)
         state = power_state.NOSTATE
 
         # xxx(wangfeng): it is too slow to connect to aws to get info. so I delete it
         
         node = self._get_provider_node(instance)
+        LOG.debug('end get the instance %s info ,provider node is %s ' % (instance.uuid,node.id))
         if  node:
             node_status = node.state
             try:
