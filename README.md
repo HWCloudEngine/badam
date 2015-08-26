@@ -1,3 +1,3 @@
-# test CI 0.6
+# test CI 0.7
 openstack
 License: Apache 2.0
