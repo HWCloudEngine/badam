@@ -162,8 +162,13 @@ class PatchesTool(object):
         for role in roles_list:
             if 'compute-proxy' in role:
                 proxy_number = role.split('-')[1]
-                return self.proxy_match_region[proxy_number]
-        return
+                print("proxy_number = %s" % proxy_number)
+                print("self.proxy_match_region = %s" % self.proxy_match_region)
+                try:
+                    return self.proxy_match_region[proxy_number]
+                except Exception as e:
+                    return None
+        return None
 
     def restart_service(self):
         log.info('Start to restart openstack service for nova/neutron/cinder.')
