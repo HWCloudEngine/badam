@@ -261,10 +261,10 @@ if __name__ == '__main__':
     config.export_region()
 
 
-    try:
-        replace_all_config()
-    except Exception, e:
-        LOG.error('Excepton when replace_all_config, Exception: %s' % traceback.format_exc())
+    # try:
+    #     replace_all_config()
+    # except Exception, e:
+    #     LOG.error('Excepton when replace_all_config, Exception: %s' % traceback.format_exc())
 
     LOG.info('Start to patch for hybrid-cloud files')
     try:
