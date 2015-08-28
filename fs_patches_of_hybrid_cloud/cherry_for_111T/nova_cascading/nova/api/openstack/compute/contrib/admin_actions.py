@@ -691,7 +691,7 @@ class MigrateThread(threading.Thread):
                 LOG.info('create target volume using the image %s' %image_id_of_volume)
                 volume = self.volume_api.get(self.context, volume_id)
                 size= volume.get('size')
-                origin_volume_type= volume.get('volume_type')
+                origin_volume_type= volume.get('volume_type_id')
                 volume_type = self._convert_volume_type(self.context,self.availability_zone,origin_volume_type)
                 volume_name = volume.get('display_name')
                 metadata ={'readonly':'False','attached_mode':'rw'}
