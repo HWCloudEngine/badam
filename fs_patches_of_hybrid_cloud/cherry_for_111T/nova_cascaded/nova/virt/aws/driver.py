@@ -950,8 +950,8 @@ class AwsEc2Driver(driver.ComputeDriver):
         # xxx(wangfeng): it is too slow to connect to aws to get info. so I delete it
         
         node = self._get_provider_node(instance)
-        LOG.debug('end get the instance %s info ,provider node is %s ' % (instance.uuid,node.id))
-        if  node:
+        if node:
+            LOG.debug('end get the instance %s info ,provider node is %s ' % (instance.uuid,node.id))
             node_status = node.state
             try:
                 state = AWS_POWER_STATE[node_status]

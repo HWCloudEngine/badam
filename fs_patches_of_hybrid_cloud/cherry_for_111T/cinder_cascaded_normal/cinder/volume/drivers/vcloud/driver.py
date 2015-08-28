@@ -26,6 +26,7 @@ from cinder.volume.drivers.vcloud.vcloudair import *
 from cinder.volume.drivers.vcloud.vcloudair import VCloudAPISession as VCASession
 from oslo.utils import units
 from cinder.volume.drivers.vcloud import sshutils as sshclient
+from keystoneclient.v2_0 import client as kc
 # from cinder.volume.drivers.vmware import api
 # from cinder.volume.drivers.vmware import datastore as hub
 # from cinder.volume.drivers.vmware import error_util
@@ -113,25 +114,43 @@ vcloudvgw_opts = [
                default='/home/upload',
                help='Directory used for temporary storage '
                     'during migrate volume'),
-    cfg.DictOpt('vcloud_vgw_url',
-                default={
-                    'fs_vgw_url': 'http://162.3.114.62:8090/',
-                    'vcloud_vgw_url': 'http://162.3.114.108:8090/',
-                    'aws_vgw_url': 'http://172.27.12.245:8090/'
-                },
-                help="These values will be used for upload/download image "
-                     "from vgw host."),
+    # cfg.DictOpt('vcloud_vgw_url',
+    #             default={
+    #                 'fs_vgw_url': 'http://162.3.114.62:8090/',
+    #                 'vcloud_vgw_url': 'http://162.3.114.108:8090/',
+    #                 'aws_vgw_url': 'http://172.27.12.245:8090/'
+    #             },
+    #             help="These values will be used for upload/download image "
+    #                  "from vgw host."),
     ]
+
+keystone_opts =[
+    cfg.StrOpt('tenant_name',
+               default='admin',
+               help='tenant name for connecting to keystone in admin context'),
+    cfg.StrOpt('user_name',
+               default='cloud_admin',
+               help='username for connecting to cinder in admin context'),
+    cfg.StrOpt('keystone_auth_url',
+               default='https://identity.cascading.hybrid.huawei.com:443/identity-admin/v2.0',
+               help='value of keystone url'),
+]
+
+keystone_auth_group = cfg.OptGroup(name='keystone_authtoken',
+                               title='keystone_auth_group')
 
 CONF = cfg.CONF
 CONF.register_opts(vcloudapi_opts, 'vcloud')
 CONF.register_opts(vcloudvgw_opts, 'vgw')
 
+CONF.register_group(keystone_auth_group)
+CONF.register_opts(keystone_opts,'keystone_authtoken')
+
 LOG = logging.getLogger(__name__)
 # VOLUME_FILE_DIR = '/hc_volumes'
 # CONVERT_DIR = '/hctemp'
 IMAGE_TRANSFER_TIMEOUT_SECS = 300
-VGW_URLS = ['fs_vgw_url', 'vcloud_vgw_url', 'aws_vgw_url']
+VGW_URLS = ['vgw_url']
 
 
 class VCloudNode(object):
@@ -519,12 +538,22 @@ class VMwareVcloudVolumeDriver(driver.VolumeDriver):
                       'instance_name': vapp_name})
         return disk_ref, the_vapp
 
+    def _get_management_url(self, kc, image_name, **kwargs):
+        endpoint_info= kc.service_catalog.get_endpoints(**kwargs)
+        endpoint_list = endpoint_info.get(kwargs.get('service_type'),None)
+        region_name = image_name.split('_')[-1]
+        if endpoint_list:
+            for endpoint in endpoint_list:
+                if region_name == endpoint.get('region'):
+                    return endpoint.get('publicURL')
+
     @RetryDecorator(max_retry_count=CONF.vcloud.vcloud_api_retry_count,
                     exceptions=(sshclient.SSHError,
                                 sshclient.SSHTimeout))
     def _copy_volume_to_file_to_vgw(self, image_meta):
         try:
             image_id = image_meta.get('id')
+            image_name = image_meta.get('name')
             container_format = image_meta.get('container_format')
             dest_file_path = os.path.join('/tmp', image_id)
 
@@ -543,7 +572,16 @@ class VMwareVcloudVolumeDriver(driver.VolumeDriver):
                       (cmd, time.strftime("%Y-%m-%d %H:%M:%S", time.localtime()
                                           )))
             # push the converted image to remote vgw host
-            vgw_url = CONF.vgw.vcloud_vgw_url[container_format]
+            # vgw_url = CONF.vgw.vcloud_vgw_url[container_format]
+            kwargs = {'auth_url': CONF.keystone_authtoken.keystone_auth_url,
+                      'tenant_name': CONF.keystone_authtoken.tenant_name,
+                      'username': CONF.keystone_authtoken.user_name,
+                      'password': CONF.keystone_authtoken.admin_password,
+                      'insecure': True}
+            keystoneclient = kc.Client(**kwargs)
+            vgw_url = self._get_management_url(keystoneclient, image_name,
+                                               service_type='v2v')
+
             LOG.debug('The remote vgw url is %(vgw_url)s',
                       {'vgw_url': vgw_url})
             # eg: curl -X POST --http1.0 -T
