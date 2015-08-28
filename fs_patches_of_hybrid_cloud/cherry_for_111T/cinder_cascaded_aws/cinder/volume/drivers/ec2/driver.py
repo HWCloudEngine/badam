@@ -22,6 +22,8 @@ import os
 import cinder.context
 import pdb
 import requests
+from keystoneclient.v2_0 import client as kc
+
 
 import time
 import string
@@ -90,16 +92,34 @@ vgw_opts = [
                help='Directory used for temporary storage '
                     'during migrate volume'),
     cfg.StrOpt('rpc_service_port',
-               default='9999',
+               default='1111',
                help='port of rpc service')      
 ]
 
+
+keystone_opts =[
+    cfg.StrOpt('tenant_name',
+               default='admin',
+               help='tenant name for connecting to keystone in admin context'),
+    cfg.StrOpt('user_name',
+               default='cloud_admin',
+               help='username for connecting to cinder in admin context'),
+    cfg.StrOpt('keystone_auth_url',
+               default='https://identity.cascading.hybrid.huawei.com:443/identity-admin/v2.0',
+               help='value of keystone url'),
+]
+
+keystone_auth_group = cfg.OptGroup(name='keystone_authtoken',
+                               title='keystone_auth_group')
 
 LOG = logging.getLogger(__name__)
 
 CONF = cfg.CONF
 CONF.register_opts(ec2api_opts)
 CONF.register_opts(vgw_opts,'vgw')
+CONF.register_group(keystone_auth_group)
+CONF.register_opts(keystone_opts,'keystone_authtoken')
+
 # EC2 = get_driver(CONF.ec2.driver_type)
 
 
@@ -315,14 +335,35 @@ class AwsEc2VolumeDriver(driver.VolumeDriver):
         device_name='/dev/xvd'+unused_device_letter[0]
         return device_name
             
-
+    def _get_management_url(self, kc,image_name, **kwargs):
+        endpoint_info= kc.service_catalog.get_endpoints(**kwargs)
+        endpoint_list = endpoint_info.get(kwargs.get('service_type'),None)
+        region_name = image_name.split('_')[-1]
+        if endpoint_list:
+            for endpoint in endpoint_list:
+                if region_name == endpoint.get('region'):
+                    return endpoint.get('publicURL')
+    
     def copy_volume_to_image(self, context, volume, image_service, image_meta): 
         LOG.error('begin time of copy_volume_to_image is %s' %(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
         container_format=image_meta.get('container_format')
+        image_name = image_meta.get('name')
         file_name=image_meta.get('id')
-        if container_format in ['fs_vgw_url','vcloud_vgw_url','aws_vgw_url']:
+        if container_format == 'vgw_url':
             LOG.debug('get the vgw url')
-            vgw_url = CONF.vgw.vgw_url.get(container_format)
+            #vgw_url = CONF.vgw.vgw_url.get(container_format)
+            kwargs = {
+                    'auth_url': CONF.keystone_authtoken.keystone_auth_url,
+                    'tenant_name': CONF.keystone_authtoken.tenant_name,
+                    'username': CONF.keystone_authtoken.user_name,
+                    'password': CONF.keystone_authtoken.admin_password,
+                    'insecure': True
+                }
+            keystoneclient = kc.Client(**kwargs)
+         
+                 
+            vgw_url = self._get_management_url(keystoneclient,image_name, service_type='v2v')
+            
             #vgw_url = 'http://162.3.125.52:9999/'
             volume_id = volume['id']
  
@@ -337,6 +378,8 @@ class AwsEc2VolumeDriver(driver.VolumeDriver):
                 raise exception_ex.ProviderVolumeNotFound(volume_id=volume_id)
             
             origin_provider_volume_state= provider_volume.extra.get('attachment_status')
+            
+            LOG.error('the origin_provider_volume_info is %s' % str(provider_volume.__dict__))
             origin_attach_node_id = None
             origin_device_name=None
             #2.judge if the volume is available
@@ -345,14 +388,16 @@ class AwsEc2VolumeDriver(driver.VolumeDriver):
                 origin_device_name = provider_volume.extra['device']
                 self.adpter.detach_volume(provider_volume)
                 time.sleep(1)
-                retry_time = 50
+                retry_time = 90
                 provider_volume=self._get_provider_volume(provider_volume_id)
+                LOG.error('the after detach _volume_info is %s' % str(provider_volume.__dict__))
                 while retry_time > 0:
                     if provider_volume and provider_volume.extra.get('attachment_status') is None:
                         break
                     else:
-                        time.sleep(1)
+                        time.sleep(2)
                         provider_volume=self._get_provider_volume(provider_volume_id)
+                        LOG.error('the after detach _volume_info is %s,the retry_time is %s' % (str(provider_volume.__dict__),str(retry_time)))
                         retry_time = retry_time-1
             #3.attach the volume to vgw host
             try:
@@ -373,7 +418,7 @@ class AwsEc2VolumeDriver(driver.VolumeDriver):
                     if provider_volume and provider_volume.extra.get('attachment_status') =='attached':
                         break
                     else:
-                        time.sleep(1)
+                        time.sleep(2)
                         provider_volume=self._get_provider_volume(provider_volume_id)
                         retry_time = retry_time-1
                 
@@ -414,7 +459,7 @@ class AwsEc2VolumeDriver(driver.VolumeDriver):
                 if provider_volume and provider_volume.extra.get('attachment_status') is None:
                     break
                 else:
-                    time.sleep(1)
+                    time.sleep(2)
                     provider_volume=self._get_provider_volume(provider_volume_id)
                     retry_time = retry_time-1
             LOG.error('**********************************************')
@@ -454,7 +499,7 @@ class AwsEc2VolumeDriver(driver.VolumeDriver):
         LOG.error('begin time of copy_image_to_volume is %s' %(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
         image_meta = image_service.show(context, image_id)
         container_format=image_meta.get('container_format')
-        if container_format in ['fs_vgw_url','vcloud_vgw_url','aws_vgw_url']:
+        if container_format == 'vgw_url':
             #1.get the provider_volume at provider cloud  
             provider_volume_id = self._get_provider_volumeid_from_volume(volume)
             retry_time = 10
@@ -543,7 +588,7 @@ class AwsEc2VolumeDriver(driver.VolumeDriver):
         boolean indicating whether cloning occurred
         """
         container_format=image_meta.get('container_format')
-        if container_format in ['fs_vgw_url','vcloud_vgw_url','aws_vgw_url']:
+        if container_format == 'vgw_url':
             return {'provider_location': None}, False
         else:
             return {'provider_location': None}, True

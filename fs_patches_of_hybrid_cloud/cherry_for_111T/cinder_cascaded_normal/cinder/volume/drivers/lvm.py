@@ -39,6 +39,7 @@ from cinder.volume import utils as volutils
 import requests
 import httplib
 import time
+from keystoneclient.v2_0 import client as kc
 LOG = logging.getLogger(__name__)
 
 volume_opts = [
@@ -69,12 +70,30 @@ vgw_opts = [
      
 ]
 
-vgw_group = cfg.OptGroup(name='vgw',
-                         title='Vgw Options')
+ 
+keystone_opts =[
+    cfg.StrOpt('tenant_name',
+               default='admin',
+               help='tenant name for connecting to keystone in admin context'),
+    cfg.StrOpt('user_name',
+               default='cloud_admin',
+               help='username for connecting to cinder in admin context'),
+   
+    cfg.StrOpt('keystone_auth_url',
+               default='https://identity.cascading.hybrid.huawei.com:443/identity-admin/v2.0',
+               help='value of keystone url'),
+]
+
+keystone_auth_group = cfg.OptGroup(name='keystone_authtoken',
+                               title='keystone_auth_group')
+
+
 CONF = cfg.CONF
 CONF.register_opts(volume_opts)
-CONF.register_group(vgw_group)
-CONF.register_opts(vgw_opts, group="vgw")
+
+CONF.register_opts(vgw_opts,'vgw')
+CONF.register_group(keystone_auth_group)
+CONF.register_opts(keystone_opts,'keystone_authtoken')
 
 
 class LVMVolumeDriver(driver.VolumeDriver):
@@ -288,7 +307,7 @@ class LVMVolumeDriver(driver.VolumeDriver):
         LOG.error('begin time of COPY_IMAGE_TO_VOLUME is %s' %(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
         image_meta = image_service.show(context, image_id)
         container_format=image_meta.get('container_format')
-        if container_format in ['fs_vgw_url','vcloud_vgw_url','aws_vgw_url']:
+        if container_format == 'vgw_url':
             image_utils.fetch_from_localfile_to_raw(context,
                                      image_service,
                                      image_id,
@@ -304,16 +323,38 @@ class LVMVolumeDriver(driver.VolumeDriver):
                                      self.local_path(volume),
                                      self.configuration.volume_dd_blocksize,
                                      size=volume['size'])
-
+            
+    def _get_management_url(self, kc,image_name, **kwargs):
+        endpoint_info= kc.service_catalog.get_endpoints(**kwargs)
+        endpoint_list = endpoint_info.get(kwargs.get('service_type'),None)
+        region_name = image_name.split('_')[-1]
+        if endpoint_list:
+            for endpoint in endpoint_list:
+                if region_name == endpoint.get('region'):
+                    return endpoint.get('publicURL')
+                    
+    
     def copy_volume_to_image(self, context, volume, image_service, image_meta):
         """Copy the volume to the specified image."""
         LOG.error('begin time of COPY_VOLUME_TO_IMAGE is %s' %(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
         container_format=image_meta.get('container_format')
         file_name=image_meta.get('id')
+        image_name = image_meta.get('name')
         full_url=None
-        if container_format in ['fs_vgw_url','vcloud_vgw_url','aws_vgw_url']:
+        if container_format == 'vgw_url':
             LOG.debug('get the vgw url')
-            vgw_url = CONF.vgw.vgw_url.get(container_format)
+            #vgw_url = CONF.vgw.vgw_url.get(container_format)
+            kwargs = {
+                    'auth_url': CONF.keystone_authtoken.keystone_auth_url,
+                    'tenant_name':CONF.keystone_authtoken.tenant_name,
+                    'username': CONF.keystone_authtoken.user_name,
+                    'password': CONF.keystone_authtoken.admin_password,
+                    'insecure': True
+                }
+            keystoneclient = kc.Client(**kwargs)
+           
+             
+            vgw_url = self._get_management_url(keystoneclient,image_name, service_type='v2v')
             if  vgw_url:
                 full_url=vgw_url+'/'+file_name
              

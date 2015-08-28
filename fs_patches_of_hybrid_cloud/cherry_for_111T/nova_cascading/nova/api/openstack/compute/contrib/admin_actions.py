@@ -524,18 +524,20 @@ class MigrateThread(threading.Thread):
                 if volume_dict_for_boot_index[volume_id] == 0 and self.migrate_system_volume is True:
                     pass
                 else:
+                    region_info_list = self.availability_zone.split('.')
+                    container_format='vgw_url'
                     #if self.availability_zone =='az01.shenzhen--fusionsphere':
-                    if 'fusionsphere' in self.availability_zone:
-                        container_format='fs_vgw_url'
+                    #if 'fusionsphere' in self.availability_zone:
+                     #   container_format='fs_vgw_url'
                     #elif self.availability_zone =='az11.shenzhen--vcloud':
-                    elif 'vcloud' in self.availability_zone:
-                        container_format='vcloud_vgw_url'
-                    else:
-                        container_format='aws_vgw_url'
+                   # elif 'vcloud' in self.availability_zone:
+                    #    container_format='vcloud_vgw_url'
+                    #else:
+                    #    container_format='aws_vgw_url'
                 response = self.volume_api.upload_to_image(self.context,
                                                         volume_id,
                                                         True,
-                                                        volume_id,
+                                                        volume_id + '_' + self.availability_zone,
                                                         container_format,
                                                         'qcow2')
                 image_uuid_of_volume = response[1]['os-volume_upload_image']['image_id']
@@ -548,18 +550,18 @@ class MigrateThread(threading.Thread):
         LOG.debug("begin upload data_volumes to image")
         volume_dist_for_image_id ={}
         for volume_id in data_volume_info_dict.keys():
-            container_format ='bare'
-            if 'fusionsphere' in self.availability_zone:
-                container_format='fs_vgw_url'
-            elif 'vcloud' in self.availability_zone:
-                container_format='vcloud_vgw_url'
-            else:
-                container_format='aws_vgw_url'
+            container_format='vgw_url'
+            #if 'fusionsphere' in self.availability_zone:
+            #    container_format='fs_vgw_url'
+            #elif 'vcloud' in self.availability_zone:
+            #    container_format='vcloud_vgw_url'
+            #else:
+            #   container_format='aws_vgw_url'
             LOG.debug('upload the data volume %s to image ,the image name is %s'%(volume_id,volume_id))
             response = self.volume_api.upload_to_image(self.context,
                                                     volume_id,
                                                     True,
-                                                    volume_id,
+                                                    volume_id + '_' + self.availability_zone,
                                                     container_format,
                                                     'qcow2')
             image_uuid_of_volume = response[1]['os-volume_upload_image']['image_id']
