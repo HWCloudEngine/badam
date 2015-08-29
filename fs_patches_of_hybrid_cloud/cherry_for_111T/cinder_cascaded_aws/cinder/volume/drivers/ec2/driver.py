@@ -291,7 +291,11 @@ class AwsEc2VolumeDriver(driver.VolumeDriver):
     def get_volume_stats(self, refresh=False):
         """Get volume stats."""
         #volume_backend_name = self.adpter.get_volume_backend_name()
-        data = {'volume_backend_name': 'AMAZONEC2',
+        backend_name = self.configuration.safe_get('volume_backend_name')
+        LOG.info('******************************backend_name is %s'%backend_name)
+        if not backend_name:
+            backend_name = 'AMAZONEC2'
+        data = {'volume_backend_name': backend_name,
                 'storage_protocol': 'LSI Logic SCSI',
                 'driver_version': self.VERSION,
                 'vendor_name': 'Huawei',

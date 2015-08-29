@@ -208,9 +208,9 @@ class VMwareVcloudVolumeDriver(driver.VolumeDriver):
     VERSION = "1.0"
 
     def __init__(self, scheme="https", *args, **kwargs):
+        super(VMwareVcloudVolumeDriver, self).__init__( *args, **kwargs)
         self._stats = None
         self._nova_api = nova.API()
-
         self._node_name = CONF.vcloud.vcloud_node_name
         self._session = VCloudAPISession(scheme=scheme)
 
@@ -218,10 +218,10 @@ class VMwareVcloudVolumeDriver(driver.VolumeDriver):
         self._vgw_name = CONF.vgw.vcloud_vgw_name
         self._vgw_username = CONF.vgw.vcloud_vgw_username
         self._vgw_password = CONF.vgw.vcloud_vgw_password
-        self._vgw_url = CONF.vgw.vcloud_vgw_url
+        #self._vgw_url = CONF.vgw.vcloud_vgw_url
         self._vgw_store_file_dir = CONF.vgw.store_file_dir
 
-        super(VMwareVcloudVolumeDriver, self).__init__()
+       
 
     def _create_volume(self, name, size):
         return self._session._call_method(self._session.vca,
@@ -434,10 +434,10 @@ class VMwareVcloudVolumeDriver(driver.VolumeDriver):
         vdc = self._get_vcloud_vdc()
         # pdb.set_trace()
         if not self._stats:
-            # backend_name = self.configuration.safe_get('volume_backend_name')
-            backend_name = 'HC_vcloud'
+            backend_name = self.configuration.safe_get('volume_backend_name')
+            LOG.debug('*******backend_name is %s' %backend_name)
             if not backend_name:
-                backend_name = self.__class__.__name__
+                backend_name = 'HC_vcloud'
             data = {'volume_backend_name': backend_name,
                     'vendor_name': 'Huawei',
                     'driver_version': self.VERSION,
