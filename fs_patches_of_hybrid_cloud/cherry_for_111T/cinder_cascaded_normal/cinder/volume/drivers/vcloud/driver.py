@@ -352,8 +352,7 @@ class VMwareVcloudVolumeDriver(driver.VolumeDriver):
             LOG.info('Created volume : %(name)s',
                      {'name': vcloud_volume_name})
         else:
-            err_msg = _('Unable to create volume, reason: %(reason)s',
-                        {'reason': resp})
+            err_msg = 'Unable to create volume, reason: %s' % resp
             LOG.error(err_msg)
             raise exception.VolumeBackendAPIException(
                             err_msg)
@@ -560,6 +559,10 @@ class VMwareVcloudVolumeDriver(driver.VolumeDriver):
             ssh_client = sshclient.SSH(user=self._vgw_username,
                                            host=self._vgw_host,
                                            password=self._vgw_password)
+
+            cmd = '/usr/bin/rescan-scsi-bus.sh -a -r'
+            ssh_client.run(cmd)
+
             # convert volume to image
             cmd = 'qemu-img convert -c -O qcow2 %s %s' %\
                   ('/dev/sdb', dest_file_path)
@@ -579,6 +582,7 @@ class VMwareVcloudVolumeDriver(driver.VolumeDriver):
                       'password': CONF.keystone_authtoken.admin_password,
                       'insecure': True}
             keystoneclient = kc.Client(**kwargs)
+            vgw_url = ''
             vgw_url = self._get_management_url(keystoneclient, image_name,
                                                service_type='v2v')
 
@@ -603,13 +607,14 @@ class VMwareVcloudVolumeDriver(driver.VolumeDriver):
 
             LOG.debug("Finished running cmd : %s" % cmd)
         except Exception as e:
-            with excutils.save_and_reraise_exception():
-                LOG.error('Failed to copy volume to image by vgw.',
-                          traceback.format_exc())
+            LOG.error('Failed to copy volume to image by vgw.'
+                      'traceback: %s', traceback.format_exc())
+            raise e
         finally:
-            # delete the temp file which is used for convert volume to image
-            ssh_client.run('rm -f %s' % dest_file_path)
-            ssh_client.close()
+            if ssh_client:
+                # delete the temp file which is used for convert volume to image
+                ssh_client.run('rm -f %s' % dest_file_path)
+                ssh_client.close()
 
     @utils.synchronized("vcloud_volume_copy_lock", external=True)
     def copy_volume_to_image(self, context, volume, image_service, image_meta):
@@ -714,6 +719,10 @@ class VMwareVcloudVolumeDriver(driver.VolumeDriver):
             ssh_client = sshclient.SSH(user=self._vgw_username,
                                        host=self._vgw_host,
                                        password=self._vgw_password)
+ 
+            cmd = '/usr/bin/rescan-scsi-bus.sh -a -r'
+            ssh_client.run(cmd)
+
             # copy data to volume
             # TODO(luqitao): need to get device name, does not use sdb.
             # TODO(luqitao): check the dest_file does exist or not?

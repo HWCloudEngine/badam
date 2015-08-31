@@ -581,7 +581,7 @@ class CinderProxy(manager.SchedulerDependentManager):
                         metadata = mapping_volume._info['metadata']
                         self._update_volume_metada(context, volume_id, metadata)
                     else:
-                        self.db.volume_update(context, volume_id, {'status': status})
+                        self.db.volume_update(context, volume_id, {'status': mapping_status})
                     continue
             except cinder_exception.Unauthorized as ex:
                 LOG.info('_sync_volume_status: Unauthorized %s', str(ex))
