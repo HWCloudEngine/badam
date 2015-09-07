@@ -509,9 +509,11 @@ class MigrateThread(threading.Thread):
         """ delete the created image during the migrate """
         if self.migrate_system_volume and image_uuid is not None:
             self.image_api.delete(self.context,image_uuid)
-        for image_id in volume_dist_for_image_id.values():
-            LOG.debug('delete the tmp image %s' %image_id)
-            self.image_api.delete(self.context,image_id)
+        
+        if volume_dist_for_image_id:
+            for image_id in volume_dist_for_image_id.values():
+                LOG.debug('delete the tmp image %s' %image_id)
+                self.image_api.delete(self.context,image_id)
                 
     def _upload_volume_to_image(self,volume_ids,volume_dict_for_boot_index):
         """ upload the volume to glance """    
@@ -569,24 +571,25 @@ class MigrateThread(threading.Thread):
             return volume_dist_for_image_id
             
     def  _delete_volume_after_migrate(self,data_volume_info_dict):
-        for volume_id in data_volume_info_dict.keys():
-            volume = self.volume_api.get(self.context, volume_id)
-            query_volume_status=1800
-            if  volume:
-                volume_status=volume.get('status')
-                if volume_status=='error' \
-                    or volume_status=='deleting' \
-                    or volume_status=='error_deleting':
-                    return
-                while volume_status != 'available':
-                    time.sleep(1)
-                    volume = self.volume_api.get(self.context, volume_id) 
-                    if volume:
-                        volume_status=volume.get('status')
-                        query_volume_status = query_volume_status-1
-                        if query_volume_status==0 and volume_status !='available':
-                            return
-                self.volume_api.delete(self.context, volume_id)
+        if data_volume_info_dict:
+            for volume_id in data_volume_info_dict.keys():
+                volume = self.volume_api.get(self.context, volume_id)
+                query_volume_status=1800
+                if  volume:
+                    volume_status=volume.get('status')
+                    if volume_status=='error' \
+                        or volume_status=='deleting' \
+                        or volume_status=='error_deleting':
+                        return
+                    while volume_status != 'available':
+                        time.sleep(1)
+                        volume = self.volume_api.get(self.context, volume_id) 
+                        if volume:
+                            volume_status=volume.get('status')
+                            query_volume_status = query_volume_status-1
+                            if query_volume_status==0 and volume_status !='available':
+                                return
+                    self.volume_api.delete(self.context, volume_id)
 
     #copy from servers for migrate
     def _get_requested_networks(self, requested_networks):
@@ -751,7 +754,7 @@ class MigrateThread(threading.Thread):
                         msg = _("migrate vm failed.")
                         raise exc.HTTPBadRequest(explanation=msg)
                     query_volume_status_count = query_volume_status_count-1
-                    if query_volume_status_count==0 and  volume.get('status') != 'in-use':
+                    if query_volume_status_count==0 and  volume.get('status') != 'available':
                         msg = _("migrate vm failed.")
                         raise exc.HTTPBadRequest(explanation=msg)
             
@@ -815,6 +818,19 @@ class MigrateThread(threading.Thread):
             bdm = [ block_device.BlockDeviceDict.from_api(bdm_dict)
                             for bdm_dict in block_device_mapping]
         return bdm
+    
+    def _get_instance_port_info(self,instance):
+        #get the interface-port info
+        search_opts = {'device_id': instance['uuid']}
+        try:
+            data = self.network_api.list_ports(self.context, **search_opts)
+        except exception.NotFound as e:
+            raise exc.HTTPNotFound(explanation=e.format_message())
+        except NotImplementedError:
+            msg = _("Network driver does not support this function.")
+            raise webob.exc.HTTPNotImplemented(explanation=msg)
+        ports = data.get('ports', []) 
+        return ports
                 
                 
             
@@ -838,15 +854,17 @@ class MigrateThread(threading.Thread):
         instance = common.get_instance(self.compute_api, self.context, self.instance.uuid, want_objects=True) 
         
         #get the interface-port info
-        search_opts = {'device_id': instance['uuid']}
-        try:
-            data = self.network_api.list_ports(self.context, **search_opts)
-        except exception.NotFound as e:
-            raise exc.HTTPNotFound(explanation=e.format_message())
-        except NotImplementedError:
-            msg = _("Network driver does not support this function.")
-            raise webob.exc.HTTPNotImplemented(explanation=msg)
-        ports = data.get('ports', []) 
+        ports = self._get_instance_port_info(instance)
+        
+        #get floatingip
+        floatingIp_fixIp_map ={}
+        for port in ports:
+            search_opts={}
+            search_opts['port_id'] = port['id']
+            floating_ip = self.network_api.list_floatingips(self.context,**search_opts)
+            if floating_ip:
+                floatingIp_fixIp_map[port['fixed_ips'][0].get('ip_address')]=floating_ip
+                
         access_ip_v4 = instance.access_ip_v4  
         access_ip_v6 = instance.access_ip_v6
         min_count = 1
@@ -991,7 +1009,8 @@ class MigrateThread(threading.Thread):
                     msg = _("migrate vm failed.")
                     raise exc.HTTPBadRequest(explanation=msg)  
         self._mount_data_volume(instance_new, source_target_vol_mapping, data_volume_info_dict)
-        self.compute_api.reboot(self.context, instance_new, 'SOFT')
+        if source_target_vol_mapping:
+            self.compute_api.reboot(self.context, instance_new, 'SOFT')
   
         #step 9 delete the image
         LOG.debug('begin clear the image and volume')
@@ -1015,6 +1034,9 @@ class MigrateThread(threading.Thread):
             if query_new_vm_status_count ==0 and instance_new.vm_state != 'active':
                 msg = _("migrate vm failed.")
                 raise exc.HTTPBadRequest(explanation=msg) 
+            
+        for ip_address in floatingIp_fixIp_map.keys():
+            self.network_api.associate_floating_ip(self.context,instance_new,floatingIp_fixIp_map.get(ip_address)['floatingips'][0]['floating_ip_address'],ip_address)
         LOG.error('end time of migrate is %s' %(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
         
         
