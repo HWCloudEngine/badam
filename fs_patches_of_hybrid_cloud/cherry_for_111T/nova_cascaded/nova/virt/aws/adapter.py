@@ -265,7 +265,7 @@ class RetryDecorator(object):
                     except self._exceptions as e:
                         error_info='Second simultaneous read on fileno'
                         error_message= e.message
-                        retry_error_message=['','Tunnel connection failed: 503 Service Unavailable',
+                        retry_error_message=['','Tunnel connection failed: 503 Service Unavailable','timed out',
                                              'Tunnel connection failed: 502 Bad Gateway',"'NoneType' object has no attribute 'makefile'"]
                         if error_message is None:
                             raise e
