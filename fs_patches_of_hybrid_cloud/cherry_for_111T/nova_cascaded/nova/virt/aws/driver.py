@@ -963,6 +963,14 @@ class AwsEc2Driver(driver.ComputeDriver):
                 'mem': 0,
                 'num_cpu': 1,
                 'cpu_time': 0}
+        
+    def attach_interface(self, instance, image_meta, vif):
+        pass
+ 
+
+    def detach_interface(self, instance, vif):
+        pass
+ 
 
     def destroy(self, context, instance, network_info, block_device_info=None,
                 destroy_disks=True, migrate_data=None):
@@ -1043,7 +1051,7 @@ class AwsEc2Driver(driver.ComputeDriver):
                 try:
                     self.compute_adapter.destroy_volume(vol)
                 except:
-                    LOG.warning('Failed to delete network interface %s', vol.id)
+                    LOG.warning('Failed to delete volume%s', vol.id)
 
         # todo: unset volume mapping
         bdms = block_device_info.get('block_device_mapping',[])
