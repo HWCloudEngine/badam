@@ -249,6 +249,9 @@ def fetch_from_localfile_to_raw(context, image_service,
                                                'file_format': data.
                                                file_format})
     try:       
+        LOG.debug('begin delete the image file %s'%tmp)
+        cmd = ('rm', '-rf', '%s' %tmp) 
+        utils.execute(*cmd, run_as_root=True)      
         fileutils.delete_if_exists(tmp)
     except:
         LOG.warning('delete the image %s tmp file failed' %image_id)
