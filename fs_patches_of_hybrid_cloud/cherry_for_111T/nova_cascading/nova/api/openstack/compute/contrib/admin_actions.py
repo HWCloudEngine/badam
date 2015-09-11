@@ -1034,9 +1034,9 @@ class MigrateThread(threading.Thread):
             if query_new_vm_status_count ==0 and instance_new.vm_state != 'active':
                 msg = _("migrate vm failed.")
                 raise exc.HTTPBadRequest(explanation=msg) 
-            
-        for ip_address in floatingIp_fixIp_map.keys():
-            self.network_api.associate_floating_ip(self.context,instance_new,floatingIp_fixIp_map.get(ip_address)['floatingips'][0]['floating_ip_address'],ip_address)
+        if floatingIp_fixIp_map:
+            for ip_address in floatingIp_fixIp_map.keys():
+                self.network_api.associate_floating_ip(self.context,instance_new,floatingIp_fixIp_map.get(ip_address)['floatingips'][0]['floating_ip_address'],ip_address)
         LOG.error('end time of migrate is %s' %(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
         
         
