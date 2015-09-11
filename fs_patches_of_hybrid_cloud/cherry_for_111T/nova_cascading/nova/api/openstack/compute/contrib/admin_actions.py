@@ -863,7 +863,9 @@ class MigrateThread(threading.Thread):
             search_opts['port_id'] = port['id']
             floating_ip = self.network_api.list_floatingips(self.context,**search_opts)
             if floating_ip:
-                floatingIp_fixIp_map[port['fixed_ips'][0].get('ip_address')]=floating_ip
+                if floating_ip.get('floatingips',None):
+                    floatingIp_fixIp_map[port['fixed_ips'][0].get('ip_address')]=floating_ip
+        
                 
         access_ip_v4 = instance.access_ip_v4  
         access_ip_v6 = instance.access_ip_v6
