@@ -701,21 +701,7 @@ class MigrateThread(threading.Thread):
                 target_volume = self.volume_api.create(self.context,size,volume_name,None,image_id=image['id'],volume_type=volume_type, 
                                                                metadata=metadata,availability_zone=self.availability_zone)
                 source_target_vol_mapping[volume_id]=target_volume
-            
-            for target_volume in source_target_vol_mapping.values():
-                query_volume_status_count=1800
-                volume_id = target_volume['id']
-                volume = self.volume_api.get(self.context, volume_id)
-                while volume.get('status') != 'available':
-                    time.sleep(2)
-                    volume = self.volume_api.get(self.context, volume_id)  
-                    if volume.get('status') == 'error':
-                        msg = _("migrate vm failed.")
-                        raise exc.HTTPBadRequest(explanation=msg)
-                    query_volume_status_count = query_volume_status_count-1
-                    if query_volume_status_count==0 and  volume.get('status') != 'available':
-                        msg = _("migrate vm failed.")
-                        raise exc.HTTPBadRequest(explanation=msg)
+                
         return source_target_vol_mapping
     
     def _check_volume_status(self,source_target_vol_mapping):
@@ -919,6 +905,28 @@ class MigrateThread(threading.Thread):
         self._stop_instance(instance)
         LOG.error('end time of stop instance is %s' %(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
         
+        instance = common.get_instance(self.compute_api, self.context, self.instance.uuid, want_objects=True)
+        #detach volume
+        for volume_id in data_volume_info_dict.keys():
+            volume = self.volume_api.get(self.context, volume_id)
+            self.compute_api.detach_volume(self.context,instance,volume)
+            
+        #judge volume detach
+        for volume_id in data_volume_info_dict.keys():
+            query_volume_status_count = 1800
+            volume = self.volume_api.get(self.context, volume_id)
+            while volume.get('status') != 'available':
+                    time.sleep(2)
+                    volume = self.volume_api.get(self.context, volume_id)  
+                    if volume.get('status') == 'error':
+                        msg = _("migrate vm failed.") 
+                        raise exc.HTTPBadRequest(explanation=msg)
+                    query_volume_status_count = query_volume_status_count-1
+                    if query_volume_status_count==0 and  volume.get('status') != 'available':
+                        msg = _("migrate vm failed.") 
+                        raise exc.HTTPBadRequest(explanation=msg)
+                    
+        
         #get the image of target vm
         boot_image_uuid = None       
         if is_boot_from_image:
@@ -973,6 +981,12 @@ class MigrateThread(threading.Thread):
                 boot_image_uuid = image_id_of_volume
         
         
+        LOG.error('begin time of delete instance is %s' %(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
+        #update the instance metadata the metadata use for vcloud delete vm
+        self.compute_api.update_instance_metadata(self.context,instance,{'quick_delete_once': 'True'},delete=False)
+        self.compute_api.delete(self.context,instance)
+        LOG.error('end time of delete instance is %s' %(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
+        
         _get_inst_type = flavors.get_flavor_by_flavor_id
         inst_type = _get_inst_type(flavor_id, ctxt=self.context,
                                            read_deleted="no") 
@@ -986,13 +1000,7 @@ class MigrateThread(threading.Thread):
            
         volume_dict_for_image_id = self._upload_data_volume_to_image(data_volume_info_dict)
         source_target_vol_mapping = self._create_target_volume(volume_dict_for_image_id) 
-         #update the instance metadata the metadata use for vcloud delete vm
-        self.compute_api.update_instance_metadata(self.context,instance,{'quick_delete_once': 'True'},delete=False) 
-        #step7 delete the vm
-        LOG.error('begin time of delete instance is %s' %(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
-        self.compute_api.delete(self.context,instance)
-        LOG.error('end time of delete instance is %s' %(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
-        
+       
         #mount volume and reboot
         instance_new =None
         if instances is not None and len(instances) == 1:
@@ -1010,17 +1018,35 @@ class MigrateThread(threading.Thread):
                 if query_new_vm_status_count ==0 and instance_new.vm_state != 'active':
                     msg = _("migrate vm failed.")
                     raise exc.HTTPBadRequest(explanation=msg)  
-        self._mount_data_volume(instance_new, source_target_vol_mapping, data_volume_info_dict)
-        if source_target_vol_mapping:
-            self.compute_api.reboot(self.context, instance_new, 'SOFT')
-  
-        #step 9 delete the image
-        LOG.debug('begin clear the image and volume')
-        self._delete_tmp_image(boot_image_uuid, volume_dict_for_image_id)
-        #step 10 delete the volume
-        self._delete_volume_after_migrate(data_volume_info_dict) 
-        
-        
+        instances[0].task_state = task_states.MIGRATING
+        instances[0].save()
+        try:
+            
+            self._check_volume_status(source_target_vol_mapping)
+            self._mount_data_volume(instance_new, source_target_vol_mapping, data_volume_info_dict)
+            
+            if floatingIp_fixIp_map:
+                for ip_address in floatingIp_fixIp_map.keys():
+                    self.network_api.associate_floating_ip(self.context,instance_new,floatingIp_fixIp_map.get(ip_address)['floatingips'][0]['floating_ip_address'],ip_address)
+                    
+            instance_new.task_state = None
+            instance_new.save() 
+            
+            if source_target_vol_mapping:
+                LOG.error('begin time of reboot instance is %s' %(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
+                self.compute_api.reboot(self.context, instance_new, 'SOFT')
+      
+            #step 9 delete the image
+            LOG.debug('begin clear the image and volume')
+            self._delete_tmp_image(boot_image_uuid, volume_dict_for_image_id)
+            #step 10 delete the volume
+            self._delete_volume_after_migrate(data_volume_info_dict) 
+        except Exception as e:
+            LOG.error('exception occur during migrating,the expeciont %s' %e.message)
+            instance_new.task_state = None
+            instance_new.save() 
+#         instance_new.task_state = None
+#         instance_new.save() 
         time.sleep(2)
         instance_new = common.get_instance(self.compute_api, self.context, instance_new.uuid,
                                        want_objects=True)
@@ -1036,9 +1062,6 @@ class MigrateThread(threading.Thread):
             if query_new_vm_status_count ==0 and instance_new.vm_state != 'active':
                 msg = _("migrate vm failed.")
                 raise exc.HTTPBadRequest(explanation=msg) 
-        if floatingIp_fixIp_map:
-            for ip_address in floatingIp_fixIp_map.keys():
-                self.network_api.associate_floating_ip(self.context,instance_new,floatingIp_fixIp_map.get(ip_address)['floatingips'][0]['floating_ip_address'],ip_address)
         LOG.error('end time of migrate is %s' %(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
         
         
