@@ -1484,6 +1484,9 @@ class ComputeManager(manager.Manager):
         try:
             csg_instance = objects.Instance.get_by_uuid(
                 context, csg_uuid)
+            #add by liuling
+            if csg_instance.task_state  == task_states.MIGRATING:
+                return
             self._check_and_heal_instance_host(context, csg_instance, csd_server)
 
             self._check_and_heal_instance_fault(context, csg_instance, csd_server)
