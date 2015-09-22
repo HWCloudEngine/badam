@@ -8,7 +8,7 @@ from oslo.config import cfg
 from libcloud.compute.types import StorageVolumeState,NodeState
 from libcloud.compute.base import NodeSize, NodeImage
 from libcloud.storage.types import ObjectDoesNotExistError
-
+import sshclient
 
 from nova import utils
 from nova import exception as exception
@@ -82,6 +82,9 @@ ec2_opts = [
     cfg.StrOpt('cgw_certificate',
                help='full name of compute gateway public key'),
 
+    cfg.StrOpt('security_group',
+                help=''),
+
     cfg.StrOpt('rabbit_host_ip_public',
                 help=''),
     
@@ -94,8 +97,31 @@ ec2_opts = [
     cfg.DictOpt('flavor_map',
                 default={'m1.tiny': 't2.micro', 'm1.small': 't2.micro', 'm1.medium': 't2.micro3',
                          'm1.large': 't2.micro', 'm1.xlarge': 't2.micro'},
-                help='map nova flavor name to aws ec2 instance specification id')
+                help='map nova flavor name to aws ec2 instance specification id'),
+    
+    cfg.StrOpt('driver_type',
+               default ='agent',
+               help='the network soulution type of aws driver'),
+            
+    cfg.StrOpt('image_user',
+               default='',
+               help=''),
 
+    cfg.StrOpt('image_password',
+               default='',
+               help=''),
+
+    cfg.StrOpt('iscsi_subnet',
+               default='',
+               help=''),
+
+    cfg.StrOpt('iscsi_subnet_route_gateway',
+               default='',
+               help=''),
+
+    cfg.StrOpt('iscsi_subnet_route_mask',
+               default='',
+               help='')
     ]
 
 instance_task_map={}
@@ -152,6 +178,39 @@ class AwsEc2Driver(driver.ComputeDriver):
 
         self.cinder_api = cinder_api()
         self.glance_api = glance_api()
+        
+        self.provider_security_group_id = None
+        self.provider_interfaces = []
+        
+        if CONF.provider_opts.driver_type == 'agent':
+            self.provider_subnet_data = CONF.provider_opts.subnet_data
+            self.provider_subnet_api = CONF.provider_opts.subnet_api
+    
+            # for agent solution by default
+            self.provider_interfaces = []
+            if CONF.provider_opts.subnet_data:
+                provider_interface_data = adapter.NetworkInterface(name='eth_data',
+                                                                   subnet_id=self.provider_subnet_data,
+                                                                   # security_groups=self.provider_security_group,
+                                                                   device_index=0)
+                self.provider_interfaces.append(provider_interface_data)
+    
+            if CONF.provider_opts.subnet_api:
+                provider_interface_api = adapter.NetworkInterface(name='eth_control',
+                                                                  subnet_id=self.provider_subnet_api,
+                                                                  # security_groups=self.provider_security_group,
+                                                                  device_index=1)
+                self.provider_interfaces.append(provider_interface_api)
+        
+        else:  
+            if not CONF.provider_opts.security_group:
+                self.provider_security_group_id = None
+            else:
+                self.provider_security_group_id = CONF.provider_opts.security_group
+
+        
+
+
 
     def init_host(self, host):
         pass
@@ -315,7 +374,7 @@ class AwsEc2Driver(driver.ComputeDriver):
     def _spawn_from_image(self, context, instance, image_meta, injected_files,
                                     admin_password, network_info, block_device_info):
         # 0.get provider_image,
-        LOG.error('begin time of _spawn_from_image is %s' %(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
+        LOG.info('begin time of _spawn_from_image is %s' %(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
         retry_time = 3
         provider_image_id = None
         provider_image = None
@@ -399,20 +458,20 @@ class AwsEc2Driver(driver.ComputeDriver):
 
         # 2.2 get a subnets and create network interfaces
         
-        provider_interface_data = adapter.NetworkInterface(name='eth_data',
-                                                           subnet_id=CONF.provider_opts.subnet_data,
-                                                           device_index=0)
-
-        provider_interface_api = adapter.NetworkInterface(name='eth_control',
-                                                           subnet_id=CONF.provider_opts.subnet_api,
-                                                           device_index=1)
-        provider_interfaces = [provider_interface_data,provider_interface_api]
+        # provider_interface_data = adapter.NetworkInterface(name='eth_data',
+        #                                                    subnet_id=CONF.provider_opts.subnet_data,
+        #                                                    device_index=0)
+        #
+        # provider_interface_api = adapter.NetworkInterface(name='eth_control',
+        #                                                    subnet_id=CONF.provider_opts.subnet_api,
+        #                                                    device_index=1)
+        # provider_interfaces = [provider_interface_data,provider_interface_api]
 
         # 2.3 generate provider node name, which useful for debugging
         provider_node_name = self._generate_provider_node_name(instance)
 
         # 2.4 generate user data, which use for network initialization
-        user_data = self._generate_user_data()
+        user_data = self._generate_user_data(instance)
 
         # 2.5 create data volumes' block device mappings, skip boot volume
         provider_bdms = None
@@ -485,14 +544,42 @@ class AwsEc2Driver(driver.ComputeDriver):
                 instance,
                 task_state=aws_task_states.CREATING_VM)
 
-            provider_node = self.compute_adapter.create_node(name=provider_node_name,
-                                                             image=provider_image,
-                                                             size=provider_size,
-                                                             location=CONF.provider_opts.availability_zone,
-                                                             # ex_subnet=provider_subnet_data,
-                                                             ex_blockdevicemappings=provider_bdms,
-                                                             ex_network_interfaces=provider_interfaces,
-                                                             ex_userdata=user_data)
+            if (len(self.provider_interfaces)>1):
+                provider_node = self.compute_adapter.create_node(name=provider_node_name,
+                                                                 image=provider_image,
+                                                                 size=provider_size,
+                                                                 location=CONF.provider_opts.availability_zone,
+                                                                 # ex_subnet=provider_subnet_data,
+                                                                 #ex_security_group_ids=self.provider_security_group_id,
+                                                                 ex_blockdevicemappings=provider_bdms,
+                                                                 ex_network_interfaces=self.provider_interfaces,
+                                                                 ex_userdata=user_data)
+            elif(len(self.provider_interfaces)==1):
+
+                provider_subnet_data_id = self.provider_interfaces[0].subnet_id
+                provider_subnet_data = self.compute_adapter.ex_list_subnets(subnet_ids=[provider_subnet_data_id])[0]
+
+
+                provider_node = self.compute_adapter.create_node(name=provider_node_name,
+                                                                 image=provider_image,
+                                                                 size=provider_size,
+                                                                 location=CONF.provider_opts.availability_zone,
+                                                                 ex_subnet=provider_subnet_data,
+                                                                 ex_security_group_ids=self.provider_security_group_id,
+                                                                 ex_blockdevicemappings=provider_bdms,
+                                                                 # ex_network_interfaces=self.provider_interfaces,
+                                                                 ex_userdata=user_data)
+            else:
+                provider_node = self.compute_adapter.create_node(name=provider_node_name,
+                                                                 image=provider_image,
+                                                                 size=provider_size,
+                                                                 location=CONF.provider_opts.availability_zone,
+                                                                 # ex_subnet=provider_subnet_data,
+                                                                 ex_security_group_ids=self.provider_security_group_id,
+                                                                 ex_blockdevicemappings=provider_bdms,
+                                                                 # ex_network_interfaces=self.provider_interfaces,
+                                                                 ex_userdata=user_data)
+
         except Exception as e:
             LOG.warning('Provider instance is booting error')
             LOG.error(e.message)
@@ -551,7 +638,7 @@ class AwsEc2Driver(driver.ComputeDriver):
                 task_state=vm_task_state)
   
  
-        LOG.error('end time of _spawn_from_image is %s' %(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
+        LOG.info('end time of _spawn_from_image is %s' %(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())))
         return provider_node
 
     def _trans_device_name(self, orig_name):
@@ -574,7 +661,7 @@ class AwsEc2Driver(driver.ComputeDriver):
                     break
 
 
-    def _generate_user_data(self):
+    def _generate_user_data(self, instance):
         return 'RABBIT_HOST_IP=%s;RABBIT_PASSWORD=%s;VPN_ROUTE_GATEWAY=%s' % (CONF.provider_opts.rabbit_host_ip_public,
                                                           CONF.provider_opts.rabbit_password_public,
                                                           CONF.provider_opts.vpn_route_gateway)
@@ -795,17 +882,142 @@ class AwsEc2Driver(driver.ComputeDriver):
 
             return task.volume_id
 
+    def _add_route_to_iscsi_subnet(self, ssh_client,
+                                   iscsi_subnet,
+                                   iscsi_subnet_route_gateway,
+                                   iscsi_subnet_route_mask):
+        while True:
+            try:
+                # list routes
+                cmd1 = "ip route show"
+                cmd1_status, cmd1_out, cmd1_err = ssh_client.execute(cmd1)
+                LOG.debug("cmd1 info status=%s ,out=%s, err=%s " %
+                          (cmd1_status, cmd1_out, cmd1_err))
+                if cmd1_status != 0:
+                    raise Exception("fail to show routes")
+
+                routes = [{'dest': p.split(" via ")[0],
+                           'gateway': p.split(" via ")[1].split(" ")[0]}
+                       for p in cmd1_out.splitlines() if
+                       p.startswith(iscsi_subnet + "/" + iscsi_subnet_route_mask)]
+                # assume same dest only allows one route, lazy to test len(routes) > 1
+                if len(routes) > 0:
+                    if routes[0]['gateway'] == iscsi_subnet_route_gateway:
+                        LOG.debug("already got the route:%s" % routes)
+                        return
+                    else:
+                        cmd_del_route = "sudo ip route delete %s" % routes[0]['dest']
+                        cmd_del_status, cmd_del_out, cmd_del_err = \
+                            ssh_client.execute(cmd_del_route)
+                        LOG.debug("cmd delete route info status=%s ,out=%s, err=%s " %
+                                  (cmd_del_status, cmd_del_out, cmd_del_err))
+                        if cmd_del_status != 0:
+                            raise Exception("fail to delete existed route")
+
+                # route got deleted or no route, add one to route table
+                cmd_add_route = "sudo ip route add %s via %s" % \
+                                (iscsi_subnet + "/" + iscsi_subnet_route_mask,
+                                 iscsi_subnet_route_gateway)
+                cmd_add_status, cmd_add_out, cmd_add_err = \
+                            ssh_client.execute(cmd_add_route)
+                LOG.debug("cmd add route info status=%s ,out=%s, err=%s " %
+                          (cmd_add_status, cmd_add_out, cmd_add_err))
+                if cmd_add_status != 0:
+                    raise Exception("fail to add route")
+
+                # write route into rc.local
+                cmd_write_local = "sudo sed -i '/PATH=/a ip route add %s via %s' /etc/init.d/rc.local" \
+                                  % (iscsi_subnet + "/" + iscsi_subnet_route_mask,
+                                     iscsi_subnet_route_gateway)
+                cmd_write_status, cmd_write_out, cmd_write_err = \
+                            ssh_client.execute(cmd_write_local)
+                LOG.debug("cmd write route info status=%s ,out=%s, err=%s " %
+                          (cmd_write_status, cmd_write_out, cmd_write_err))
+                if cmd_write_status != 0:
+                    raise Exception("fail to write route into rc.local")
+                LOG.info("added route succeeds!")
+                break
+            except sshclient.SSHError:
+                    LOG.debug("wait for vm to initialize network")
+                    time.sleep(5)
+
+    def _attach_volume_iscsi(self, provider_node, connection_info):
+        user = CONF.provider_opts.image_user
+        pwd = CONF.provider_opts.image_password
+        if provider_node.private_ips:
+            host = provider_node.private_ips[0]
+        else:
+            LOG.error("provider_node.private_ips None ,attach volume failed")
+            raise Exception(_("provider_node.private_ips None ,attach volume failed"))
+
+        ssh_client = sshclient.SSH(user, host, password=pwd)
+
+        # add route if config exists
+        if CONF.provider_opts.driver_type == 'agent' and \
+                CONF.provider_opts.iscsi_subnet and \
+                CONF.provider_opts.iscsi_subnet_route_gateway and \
+                CONF.provider_opts.iscsi_subnet_route_mask:
+            LOG.debug("add route to vm:%s, %s, %s" % (CONF.provider_opts.iscsi_subnet,
+                                                      CONF.provider_opts.iscsi_subnet_route_gateway,
+                                                      CONF.provider_opts.iscsi_subnet_route_mask))
+            self._add_route_to_iscsi_subnet(ssh_client,
+                                          CONF.provider_opts.iscsi_subnet,
+                                          CONF.provider_opts.iscsi_subnet_route_gateway,
+                                          CONF.provider_opts.iscsi_subnet_route_mask)
+
+        target_iqn = connection_info['data']['target_iqn']
+        target_portal = connection_info['data']['target_portal']
+        cmd1 = "sudo iscsiadm -m node -T %s -p %s" % (target_iqn, target_portal)
+        while True:
+            try:
+                cmd1_status, cmd1_out, cmd1_err = ssh_client.execute(cmd1)
+                LOG.debug("sudo cmd1 info status=%s ,out=%s, err=%s " % (cmd1_status, cmd1_out, cmd1_err))
+                if cmd1_status in [21, 255]:
+                    cmd2 = "sudo iscsiadm -m node -T %s -p %s --op new" % (target_iqn, target_portal)
+                    cmd2_status, cmd2_out, cmd2_err = ssh_client.execute(cmd2)
+                    LOG.debug("sudo cmd2 info status=%s ,out=%s, err=%s " % (cmd2_status, cmd2_out, cmd2_err))
+                break
+            except sshclient.SSHError:
+                LOG.debug("wait for vm to initialize network")
+                time.sleep(5)
+
+        cmd3 = "sudo iscsiadm -m session"
+        cmd3_status, cmd3_out, cmd3_err = ssh_client.execute(cmd3)
+        portals = [{'portal': p.split(" ")[2], 'iqn': p.split(" ")[3]}
+                   for p in cmd3_out.splitlines() if p.startswith("tcp:")]
+        stripped_portal = connection_info['data']['target_portal'].split(",")[0]
+        if len(portals) == 0 or len([s for s in portals
+                                     if stripped_portal ==
+                                     s['portal'].split(",")[0]
+                                     and
+                                     s['iqn'] ==
+                                     connection_info['data']['target_iqn']]
+                                    ) == 0:
+            cmd4 = "sudo iscsiadm -m node -T %s -p %s --login" % (target_iqn, target_portal)
+            cmd4_status, cmd4_out, cmd4_err = ssh_client.execute(cmd4)
+            LOG.debug("sudo cmd4 info status=%s ,out=%s, err=%s " % (cmd4_status, cmd4_out, cmd4_err))
+            cmd5 = "sudo iscsiadm -m node -T %s -p %s --op update -n node.startup  -v automatic" % \
+                   (target_iqn, target_portal)
+            cmd5_status, cmd5_out, cmd5_err = ssh_client.execute(cmd5)
+            LOG.debug("sudo cmd5 info status=%s ,out=%s, err=%s " % (cmd5_status, cmd5_out, cmd5_err))
+        ssh_client.close()
+
     def attach_volume(self, context, connection_info, instance, mountpoint,
                       disk_bus=None, device_type=None, encryption=None):
         """Attach volume storage to VM instance."""
       
         volume_id = connection_info['data']['volume_id']
         instance_id = instance.uuid
+        driver_type = connection_info['driver_volume_type']
         LOG.info("attach volume")
 
         provider_node=self._get_provider_node(instance)
         if not provider_node:
             LOG.error('get instance %s error at provider cloud' % instance_id)
+            return
+
+        if driver_type == 'iscsi':
+            self._attach_volume_iscsi(provider_node, connection_info)
             return
 
         # 2.get volume exist or import volume
@@ -883,6 +1095,38 @@ class AwsEc2Driver(driver.ComputeDriver):
             LOG.error(e.message)  
         return provider_volume
 
+    def _detach_volume_iscsi(self, provider_node, connection_info):
+        user = CONF.provider_opts.image_user
+        pwd = CONF.provider_opts.image_password
+        if provider_node.private_ips:
+            host = provider_node.private_ips[0]
+        else:
+            LOG.debug("provider_node.private_ips None ,attach volume failed")
+            raise
+        ssh_client = sshclient.SSH(user, host, password=pwd)
+        target_iqn = connection_info['data']['target_iqn']
+        target_portal = connection_info['data']['target_portal']
+        cmd1 = "ls -l /dev/disk/by-path/ | grep %s | awk -F '/' '{print $NF}'" % target_iqn
+        cmd1_status, cmd1_out, cmd1_err = ssh_client.execute(cmd1)
+        LOG.debug(" cmd1 info status=%s ,out=%s, err=%s " % (cmd1_status, cmd1_out, cmd1_err))
+        device = "/dev/" + cmd1_out.split('\n')[0]
+        path = "/sys/block/" + cmd1_out.split('\n')[0] + "/device/delete"
+        cmd2 = "sudo blockdev --flushbufs %s" % device
+        cmd2_status, cmd2_out, cmd2_err = ssh_client.execute(cmd2)
+        LOG.debug(" cmd2 info status=%s ,out=%s, err=%s " % (cmd2_status, cmd2_out, cmd2_err))
+        cmd3 = "echo 1 | sudo tee -a %s" % path
+        cmd3_status, cmd3_out, cmd3_err = ssh_client.execute(cmd3)
+        LOG.debug("sudo cmd3 info status=%s ,out=%s, err=%s " % (cmd3_status, cmd3_out, cmd3_err))
+        cmd4 = "sudo iscsiadm -m node -T %s -p %s --op update -n node.startup  -v manual" % (target_iqn, target_portal)
+        cmd4_status, cmd4_out, cmd4_err = ssh_client.execute(cmd4)
+        LOG.debug("sudo cmd4 info status=%s ,out=%s, err=%s " % (cmd4_status, cmd4_out, cmd4_err))
+        cmd5 = "sudo iscsiadm -m node -T %s -p %s --logout" % (target_iqn, target_portal)
+        cmd5_status, cmd5_out, cmd5_err = ssh_client.execute(cmd5)
+        LOG.debug("sudo cmd5 info status=%s ,out=%s, err=%s " % (cmd5_status, cmd5_out, cmd5_err))
+        cmd6 = "sudo iscsiadm -m node -T %s -p %s --op delete" % (target_iqn, target_portal)
+        cmd6_status, cmd6_out, cmd6_err = ssh_client.execute(cmd6)
+        LOG.debug("sudo cmd6 info status=%s ,out=%s, err=%s " % (cmd6_status, cmd6_out, cmd6_err))
+
     def detach_volume(self, connection_info, instance, mountpoint,
                       encryption=None):
         """Detach the disk attached to the instance."""
@@ -890,7 +1134,17 @@ class AwsEc2Driver(driver.ComputeDriver):
         LOG.info("detach volume")
 
         volume_id = connection_info['data']['volume_id']
-      
+        instance_id = instance.uuid
+        driver_type = connection_info['driver_volume_type']
+
+        provider_node=self._get_provider_node(instance)
+        if not provider_node:
+            LOG.error('get instance %s error at provider cloud' % instance_id)
+            return
+        if driver_type == 'iscsi':
+            self._detach_volume_iscsi(provider_node, connection_info)
+            return
+
         provider_volume=self._get_provider_volume(volume_id)
         if not provider_volume:
             LOG.error('get volume %s error at provider cloud' % volume_id)
@@ -942,7 +1196,10 @@ class AwsEc2Driver(driver.ComputeDriver):
         """
         # return "aws-ec2-hypervisor"
         return "hybrid_%s" % CONF.provider_opts.region
-
+   
+    def attach_interface(self, instance, image_meta, vif):
+        pass
+    
     def get_info(self, instance):
         LOG.debug('begin get the instance %s info ' % instance.uuid)
         state = power_state.NOSTATE
@@ -963,14 +1220,6 @@ class AwsEc2Driver(driver.ComputeDriver):
                 'mem': 0,
                 'num_cpu': 1,
                 'cpu_time': 0}
-        
-    def attach_interface(self, instance, image_meta, vif):
-        pass
- 
-
-    def detach_interface(self, instance, vif):
-        pass
- 
 
     def destroy(self, context, instance, network_info, block_device_info=None,
                 destroy_disks=True, migrate_data=None):
@@ -1002,24 +1251,33 @@ class AwsEc2Driver(driver.ComputeDriver):
 
         # 0.2 get volume
         provider_vol_list = self.compute_adapter.list_volumes(node=node)
-
+        provider_volume_ids = []
+        local_volume_ids = []
+        all_volume_ids = []
+        if len(block_device_info) > 0:
+            # get volume id
+            bdms = block_device_info.get('block_device_mapping',[])
+            for device in bdms:
+                volume_id = device['connection_info']['data']['volume_id']
+                all_volume_ids.append(volume_id)
+                if device['connection_info']['driver_volume_type'] == 'iscsi':
+                    local_volume_ids.append(volume_id)
+                else:
+                    provider_volume_ids.append(self._get_provider_volume_id(context, volume_id))
 
         # 1. dettach volumes, if needed
         if not destroy_disks:
-            if len(block_device_info) > 0:
-                provider_volume_ids = []
-                # get volume id
-                for device in block_device_info:
-                    volume_id = device[ 'connection_info']['data']['volume_id']
-                    provider_volume_ids.append(self._get_provider_volume_id(context,volume_id))
-
                 # get volume in provide cloud
                 provider_volumes = self.compute_adapter.list_volumes(ex_volume_ids=provider_volume_ids)
 
                 # detach
                 for provider_volume in provider_volumes:
                     self.compute_adapter.detach_volume(provider_volume)
-                    self._map_volume_to_provider(context, volume_id, None)
+                for local_volume in local_volume_ids:
+                    volume = self.cinder_api.get(context, local_volume)
+                    attachment = self.cinder_api.get_volume_attachment(volume, instance['uuid'])
+                    if attachment:
+                        self.cinder_api.detach(context, local_volume, attachment['attachment_id'])
 
         # 2.destory node
         # self.compute_adapter.destroy_node(node)
@@ -1046,20 +1304,38 @@ class AwsEc2Driver(driver.ComputeDriver):
                 LOG.warning('Failed to delete network interface %s', eth.id)
 
         # 3.2 delete volumes, if needed
+        tries = 0
         if destroy_disks:
             for vol in provider_vol_list:
                 try:
                     self.compute_adapter.destroy_volume(vol)
                 except:
-                    LOG.warning('Failed to delete volume%s', vol.id)
+                    LOG.warning('Failed to delete provider vol %s', vol.id)
 
+            for cinder_vol in all_volume_ids:
+                try:
+                    volume = self.cinder_api.get(context, cinder_vol)
+                    attachment = self.cinder_api.get_volume_attachment(volume, instance['uuid'])
+                    if attachment:
+                        self.cinder_api.detach(context, cinder_vol, attachment['attachment_id'])
+                    while tries <= 3:
+                        volume = self.cinder_api.get(context, cinder_vol)
+                        if volume['status'] != 'available':
+                            time.sleep(tries ** 2)
+                            tries = tries + 1
+                        else:
+                            break
+                    self.cinder_api.delete(context, cinder_vol)
+                except:
+                    LOG.warning('Failed to delete cinder_vol vol %s', cinder_vol)
         # todo: unset volume mapping
         bdms = block_device_info.get('block_device_mapping',[])
         volume_ids = self._get_volume_ids_from_bdms(bdms)
         for volume_id in volume_ids:
-            self._map_volume_to_provider(context, volume_id, None)
-
-        
+            try:
+                self._map_volume_to_provider(context, volume_id, None)
+            except Exception as e:
+                LOG.info("got exception:%s" % str(e))
 
     def _get_provider_node_id(self, instance_obj):
        
